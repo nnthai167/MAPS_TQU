@@ -114,6 +114,17 @@
     <!-- Map view -->
     <section id="view-map" class="absolute inset-0">
       <div id="map"></div>
+
+      <!-- Layer switch: Bản đồ / Vệ tinh -->
+      <div class="absolute top-3 right-3 z-[500] bg-white/95 backdrop-blur rounded-full shadow-md p-1 flex gap-0.5">
+        <button data-layer="street" class="layer-btn btn-press text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1 bg-moss-700 text-white">
+          🗺️ Bản đồ
+        </button>
+        <button data-layer="satellite" class="layer-btn btn-press text-xs font-semibold px-3 py-1.5 rounded-full flex items-center gap-1 text-gray-500">
+          🛰️ Vệ tinh
+        </button>
+      </div>
+
       <div id="mapLoading" class="absolute inset-0 flex items-center justify-center bg-moss-50/70 pointer-events-none">
         <div class="text-moss-600 text-sm font-medium">Đang tải bản đồ…</div>
       </div>
@@ -180,14 +191,35 @@ function typeMeta(type){
 }
 
 /* ============ 4. MAP INIT ============ */
+let streetLayer, satelliteLayer, satelliteLabels;
+
 function initMap(){
   map = L.map('map', { zoomControl:false, attributionControl:true }).setView([21.8236, 105.2152], 11);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+
+  // Nền bản đồ dạng đường phố (OpenStreetMap)
+  streetLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
     maxZoom: 19,
-    subdomains: 'abcd',
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>'
-  }).addTo(map);
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  });
+
+  // Nền bản đồ vệ tinh (Esri World Imagery) + lớp nhãn tên địa danh/đường
+  satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19,
+    attribution: 'Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics'
+  });
+  satelliteLabels = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19,
+    pane: 'shadowPane'
+  });
+
+  streetLayer.addTo(map);
+  map.getPane('shadowPane').style.pointerEvents = 'none';
+
   L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+  document.querySelectorAll('.layer-btn').forEach(btn => {
+    btn.addEventListener('click', () => setMapLayer(btn.dataset.layer));
+  });
 
   clusterGroup = L.markerClusterGroup({
     maxClusterRadius: 50,
@@ -203,6 +235,24 @@ function initMap(){
   });
   map.addLayer(clusterGroup);
   document.getElementById('mapLoading').remove();
+}
+
+function setMapLayer(mode){
+  if (mode === 'satellite'){
+    map.removeLayer(streetLayer);
+    satelliteLayer.addTo(map);
+    satelliteLabels.addTo(map);
+  } else {
+    map.removeLayer(satelliteLayer);
+    map.removeLayer(satelliteLabels);
+    streetLayer.addTo(map);
+  }
+  document.querySelectorAll('.layer-btn').forEach(btn => {
+    const on = btn.dataset.layer === mode;
+    btn.classList.toggle('bg-moss-700', on);
+    btn.classList.toggle('text-white', on);
+    btn.classList.toggle('text-gray-500', !on);
+  });
 }
 
 function makeIcon(type){
