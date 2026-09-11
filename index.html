@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0f5132">
+<title>Bản đồ trạm sạc & đổi pin — Tuyên Quang</title>
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<!-- Leaflet MarkerCluster -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css" />
+<link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css" />
+<script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+
+<!-- SheetJS -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<!-- Tailwind -->
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+  tailwind.config = {
+    theme: {
+      extend: {
+        colors: {
+          ink: '#0b1f16',
+          moss: {50:'#f2f8f4',100:'#dfeee5',200:'#b9dcc6',300:'#8bc4a1',400:'#5aa87c',500:'#398a5f',600:'#286f4a',700:'#20573c',800:'#1b4531',900:'#173a29'},
+          amber: {50:'#fff8ec',100:'#ffedc7',200:'#ffd98a',300:'#ffbd4d',400:'#ffa11f',500:'#f78406',600:'#d86602',700:'#b34d05',800:'#8f3d0b',900:'#75330d'}
+        },
+        fontFamily: {
+          sans: ['"Be Vietnam Pro"','system-ui','-apple-system','Segoe UI','Roboto','sans-serif'],
+        }
+      }
+    }
+  }
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<style>
+  html, body { height: 100%; overscroll-behavior: none; }
+  body { font-family: 'Be Vietnam Pro', system-ui, sans-serif; }
+  #map { height: 100%; width: 100%; background:#e7efe9; }
+  .leaflet-popup-content-wrapper { border-radius: 14px; padding: 0; overflow: hidden; }
+  .leaflet-popup-content { margin: 0; width: 260px !important; }
+  .leaflet-popup-tip { background: #fff; }
+  .station-marker { display:flex; align-items:center; justify-content:center; border-radius: 999px; box-shadow: 0 2px 6px rgba(0,0,0,.35); border: 2px solid #fff; font-size: 15px; }
+  .marker-cluster-custom { background: transparent !important; }
+  .cluster-pill { display:flex; align-items:center; justify-content:center; width:100%; height:100%; border-radius:999px; color:#fff; font-weight:700; font-size:13px; box-shadow:0 2px 8px rgba(0,0,0,.35); border:2px solid #fff; }
+  .tab-underline { position: relative; }
+  .tab-underline.active::after { content:''; position:absolute; left:14%; right:14%; bottom:-1px; height:3px; border-radius:3px; background:#286f4a; }
+  .scrollbar-thin::-webkit-scrollbar { width: 5px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background:#c7d9cd; border-radius:4px; }
+  .btn-press:active { transform: scale(0.96); }
+  .chip { transition: all .15s ease; }
+  #locateBtn.locating svg { animation: spin 1s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .fade-in { animation: fadeIn .25s ease; }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(6px);} to { opacity:1; transform:none; } }
+  input[type="file"] { display:none; }
+  .safe-bottom { padding-bottom: env(safe-area-inset-bottom); }
+</style>
+</head>
+<body class="bg-moss-50 text-ink">
+
+<div class="flex flex-col h-[100dvh] overflow-hidden">
+
+  <!-- Header -->
+  <header class="shrink-0 bg-moss-800 text-white px-4 pt-[calc(env(safe-area-inset-top)+10px)] pb-3 shadow-md z-[1000]">
+    <div class="flex items-center justify-between gap-3">
+      <div class="min-w-0">
+        <h1 class="text-[17px] font-bold leading-tight truncate">Trạm sạc & đổi pin — Tuyên Quang</h1>
+        <p class="text-[11.5px] text-moss-200 mt-0.5" id="statSummary">Đang tải dữ liệu…</p>
+      </div>
+      <label id="uploadBtn" class="btn-press shrink-0 flex flex-col items-center justify-center w-11 h-11 rounded-full bg-moss-700 active:bg-moss-600 cursor-pointer" title="Tải file Excel/CSV">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-moss-100" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><polyline points="7 9 12 4 17 9"/><line x1="12" y1="4" x2="12" y2="16"/></svg>
+        <input id="fileInput" type="file" accept=".xlsx,.xls,.csv" />
+      </label>
+    </div>
+
+    <!-- Search -->
+    <div class="mt-3 relative">
+      <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-moss-300" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="searchInput" type="text" placeholder="Tìm theo mã trạm hoặc tên trạm..."
+        class="w-full bg-moss-900/40 focus:bg-white focus:text-ink placeholder-moss-300 focus:placeholder-gray-400 text-sm rounded-xl pl-9 pr-9 py-2.5 outline-none transition-colors border border-moss-600 focus:border-moss-300"/>
+      <button id="clearSearch" class="hidden absolute right-2.5 top-1/2 -translate-y-1/2 text-moss-300 hover:text-white">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <!-- Filter chips -->
+    <div class="mt-2.5 flex items-center gap-2 overflow-x-auto scrollbar-thin -mx-4 px-4 pb-0.5">
+      <button data-filter="all" class="chip-filter chip shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full bg-white text-moss-800">Tất cả</button>
+      <button data-filter="charging" class="chip-filter chip shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full bg-moss-700 text-moss-100 flex items-center gap-1">⚡ Trạm sạc</button>
+      <button data-filter="swap" class="chip-filter chip shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full bg-moss-700 text-moss-100 flex items-center gap-1">🔋 Đổi pin</button>
+      <button id="locateBtn" class="chip shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full bg-amber-500 text-white flex items-center gap-1 ml-auto">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M22 12h-3M5 12H2"/></svg>
+        Vị trí của tôi
+      </button>
+    </div>
+  </header>
+
+  <!-- Tabs -->
+  <nav class="shrink-0 bg-white border-b border-moss-100 flex text-sm font-semibold z-[900]">
+    <button data-tab="map" class="tab-underline active flex-1 py-3 text-moss-800">🗺️ Bản đồ</button>
+    <button data-tab="list" class="tab-underline flex-1 py-3 text-gray-400">📋 Danh sách trạm</button>
+  </nav>
+
+  <!-- Content -->
+  <main class="relative flex-1 min-h-0">
+
+    <!-- Map view -->
+    <section id="view-map" class="absolute inset-0">
+      <div id="map"></div>
+      <div id="mapLoading" class="absolute inset-0 flex items-center justify-center bg-moss-50/70 pointer-events-none">
+        <div class="text-moss-600 text-sm font-medium">Đang tải bản đồ…</div>
+      </div>
+    </section>
+
+    <!-- List view -->
+    <section id="view-list" class="absolute inset-0 hidden overflow-y-auto scrollbar-thin bg-moss-50">
+      <div id="listContainer" class="p-3 space-y-2.5 safe-bottom"></div>
+      <div id="listEmpty" class="hidden flex-col items-center justify-center text-center px-8 py-16 text-gray-400">
+        <div class="text-4xl mb-2">🔍</div>
+        <p class="text-sm">Không tìm thấy trạm phù hợp.</p>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="fixed left-1/2 -translate-x-1/2 bottom-6 bg-ink text-white text-xs font-medium px-4 py-2.5 rounded-full shadow-lg opacity-0 pointer-events-none transition-opacity duration-300 z-[2000]"></div>
+
+<script>
+/* ============ 1. DỮ LIỆU TRẠM MẶC ĐỊNH (trích xuất từ file Excel Tuyên Quang do người dùng cung cấp) ============ */
+const DEFAULT_STATIONS = [{"code":"C.TQU11033","name":"NQ Tư Nhân NGUYỄN THU ĐÔNG","type":"charging","address":"xã Thái Hòa - tỉnh Tuyên Quang","ward":"Phường Phan Thiết","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.957537,"lng":105.109299,"count":4},{"code":"C.TQU11657","name":"NQ Tư nhân CSSX giấy Tất Thắng, Dốc Đỏ - Nông Tiến","type":"charging","address":"phường nông tiến, tỉnh tuyên quang","ward":"Phường Phan Thiết","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.814463,"lng":105.231873,"count":4},{"code":"C.TQU10417","name":"HỘ KINH DOANH TRẦN MINH SÁNG","type":"charging","address":"xã Yên Sơn, Tỉnh Tuyên Quang","ward":"Xã Tứ Quận","district":"Huyện Yên Sơn","province":"Tỉnh Tuyên Quang","lat":21.894869,"lng":105.137787,"count":2},{"code":"C.TQU10285","name":"Tư nhân Đàm Văn Tuyên,137,đường nguyễn tất thành,TDP 2, Xã Nà Hang,Tuyên Quang","type":"charging","address":"số 137,đường nguyễn tất thành,TỔ DÂN PHỐ 2, Xã Nà Hang, Tỉnh Tuyên Quang","ward":"Thị trấn Na Hang","district":"Huyện Na Hang","province":"Tỉnh Tuyên Quang","lat":22.352299,"lng":105.387512,"count":2},{"code":"C.TQU10957","name":"Tư nhân VŨ TUẤN ANH,9, Tổ dân phố Hưng Thành 2, Phường An Tường, Tuyên Quang","type":"charging","address":"số 09, Tổ dân phố Hưng Thành 2, Phường An Tường, Tuyên Quang","ward":"Phường An Tường","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.810141,"lng":105.212372,"count":2},{"code":"C.TQU11629","name":"TƯ NHÂN LÊ HUỲNH,Tổ Dân Phố Phan Thiết 13.Phường Minh Xuân, Tuyên Quang","type":"charging","address":"Căn Pg2-03 Vincom, Tổ Dân Phố Phan Thiết 13.Phường Minh Xuân, Tuyên Quang","ward":"Phường Minh Xuân","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.81855,"lng":105.205406,"count":1},{"code":"C.TQU11628","name":"TƯ NHÂN  NGUYỄN VĂN THÁI, Tân Hà 4,Phường Minh Xuân, Tuyên Quang","type":"charging","address":"Tân Hà 4,Phường Minh Xuân, Tuyên Quang","ward":"Phường Minh Xuân","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.82987,"lng":105.192604,"count":1},{"code":"C.TQU10593","name":"HKD LÂM HỒNG TỚI","type":"charging","address":"huyện hàm yên , tỉnh tuyên quang","ward":"Phường Phan Thiết","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":22.233269,"lng":104.920319,"count":4},{"code":"C.TQU00104","name":"Công ty TNHH Hải Hoa","type":"charging","address":"Phường An Tường. Tỉnh Tuyên Quang","ward":"Phường An Tường","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.780811,"lng":105.207649,"count":12},{"code":"C.TQU10980","name":"TƯ NHÂN PHẠM XUÂN TÂN,Thôn 12,Phường Minh Xuân,Tỉnh Tuyên Quang","type":"charging","address":"Thôn 12,Phường Minh Xuân,Tỉnh Tuyên Quang","ward":"Phường Minh Xuân","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.813147,"lng":105.214401,"count":1},{"code":"C.TQU10872","name":"TƯ NHÂN Ma Văn CườngThôn Vĩnh Thịnh,Xã Chiêm Hóa, Tuyên Quang","type":"charging","address":"Thôn Vĩnh Thịnh,Xã Chiêm Hóa, Tuyên Quang","ward":"Thị trấn Vĩnh Lộc","district":"Huyện Chiêm Hóa","province":"Tỉnh Tuyên Quang","lat":22.144608,"lng":105.259163,"count":1},{"code":"C.TQU0113","name":"CTY TNHH PT DT & TM BẢO ANH - 163 thôn Chè 6,Phường An Tường","type":"charging","address":"163 thôn Chè 6,Phường An Tường","ward":"Phường An Tường","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.7705,"lng":105.223999,"count":6},{"code":"C.TQU10874","name":"TƯ NHÂN HOÀNG THU THẢO, Thôn 1. Xã trung sơn. Tuyên quang","type":"charging","address":"Thôn 1. Xã trung sơn. Tuyên quang","ward":"Xã Trung Sơn","district":"Huyện Yên Sơn","province":"Tỉnh Tuyên Quang","lat":21.856737,"lng":105.361153,"count":2},{"code":"C.TQU10459","name":"Tư nhân Phan Mạnh Lực,130 đường Minh Thanh, phường Minh Xuân, Tuyên Quang","type":"charging","address":",130 đường Minh Thanh, phường Minh Xuân, Tuyên Quang","ward":"Phường Minh Xuân","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.823708,"lng":105.188858,"count":2},{"code":"C.TQU10646","name":"TƯ NHÂN Đỗ Trung Kiên,Thôn Nà Ngày, Xã Chiêm Hoá, Tuyên Quang","type":"charging","address":"Thôn Nà Ngày, Xã Chiêm Hoá, Tuyên Quang","ward":"Xã Xuân Quang","district":"Huyện Chiêm Hóa","province":"Tỉnh Tuyên Quang","lat":22.117069,"lng":105.263695,"count":1},{"code":"C.TQU10236","name":"HKD Hoàng Quý Trung","type":"charging","address":"Thôn 17, xã Vị Xuyên, tỉnh Tuyên Quang","ward":"Phường Phan Thiết","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":22.68236,"lng":104.97171,"count":4},{"code":"C.TQU0005","name":"Xưởng dịch vụ VinFast Tuyên Quang","type":"charging","address":"Tầng 1, Vincom Plaza Tuyên Quang, Số 260, Đường Quang Trung, phường Phan Thiết","ward":"Phường Phan Thiết","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.81905,"lng":105.205383,"count":2},{"code":"C.TQU10050","name":"NQ Tư Nhân TRẦN MINH SÁNG","type":"charging","address":"Thôn Đồng Cầu, xã Yên Sơn, Tỉnh Tuyên Quang","ward":"Phường Phan Thiết","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.894869,"lng":105.137787,"count":2},{"code":"C.TQU10324","name":"NQ Tư Nhân Triệu Đức Minh","type":"charging","address":"Thôn Cống Đôi, xã Hàm Yên, tỉnh Tuyên Quang, Việt Nam","ward":"Phường Phan Thiết","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":22.062454,"lng":105.036026,"count":2},{"code":"C.TQU10240","name":"NQ Vương Đỗ Thắng","type":"charging","address":"Đc Cũ: TDP Tân Thịnh, thị trấn Tân Yên, Hàm Yên, Tuyên Quang ĐC mới: Thôn Tân Thịnh, xã Hàm Yên, Tuyên Quang","ward":"Thị trấn Tân Yên","district":"Huyện Hàm Yên","province":"Tỉnh Tuyên Quang","lat":22.059841,"lng":105.032196,"count":4},{"code":"C.TQU10207","name":"Tư Nhân Trần Chí Liêm, Thôn Gò Chè, xã Nhữ Hán, huyện Yên Sơn, tỉnh Tuyên Quang","type":"charging","address":"Thôn Gò Chè, xã Nhữ Hán, huyện Yên Sơn, tỉnh Tuyên Quang","ward":"Xã Nhữ Hán","district":"Huyện Yên Sơn","province":"Tỉnh Tuyên Quang","lat":21.713757,"lng":105.119057,"count":3},{"code":"C.TQU10200","name":"Tư Nhân Lý Xuân Trọng, xóm 1, Thôn Chàng Sát, xã Bằng Lang, tỉnh Tuyên Quang","type":"charging","address":"Xóm 1, Thôn Chàng Sát, xã Bằng Lang, tỉnh Tuyên Quang","ward":"Xã Bằng Lang","district":"Huyện Quang Bình","province":"Tỉnh Hà Giang","lat":22.354445,"lng":104.733833,"count":1},{"code":"C.TQU0073","name":"Nhượng quyền Vi Thế Mạnh","type":"charging","address":"55B Đường Tuệ Tĩnh, thành phố Tuyên Quang","ward":"Phường Tân Hà","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.828995,"lng":105.203728,"count":3},{"code":"C.TQU0122","name":"Tư Nhân Lê Thành Chung, Tổ Dân Phố Tân Hà 11, Phường Minh Xuân","type":"charging","address":"Tổ Dân Phố Tân Hà 11, Phường Minh Xuân, Tuyên Quang","ward":"Phường Tân Hà","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.83522,"lng":105.197144,"count":1},{"code":"C.TQU0086","name":"Tư Nhân Giang Văn Tuấn Link, Tổ 4, Phường Tân Hà, Tuyên Quang","type":"charging","address":"Tổ 4, Phường Tân Hà, Thành Phố Tuyên Quang","ward":"Phường Tân Hà","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.831724,"lng":105.194237,"count":6},{"code":"C.TQU0129","name":"Tư Nhân Phan Anh Thành, Số 25, Đường Phan Thiết, Phường Minh Xuân","type":"charging","address":"Số 25, Đường Phan Thiết, Phường Minh Xuân,Tuyên Quang","ward":"Phường Phan Thiết","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.823418,"lng":105.205109,"count":1},{"code":"C.TQU0121","name":"Tư nhân Nguyễn Thanh Tùng,Trung Môn 8, Phường Minh Xuân, Tỉnh Tuyên Quang","type":"charging","address":"Tổ dân phố Trung Môn 8, Phường Minh Xuân, Tỉnh Tuyên Quang","ward":"Xã Trung Môn","district":"Huyện Yên Sơn","province":"Tỉnh Tuyên Quang","lat":21.834808,"lng":105.171371,"count":1},{"code":"C.TQU0123","name":"Tư nhân Chu Quốc Hùng,thôn 10, Tân Long, Tuyên Quang","type":"charging","address":"thôn 10, Tân Long, Tuyên Quang","ward":"Xã Tân Long","district":"Huyện Yên Sơn","province":"Tỉnh Tuyên Quang","lat":21.868187,"lng":105.205521,"count":1},{"code":"C.TQU0118","name":"Tư Nhân Hoàng Hải Linh, Tổ Dân Phố Tân Hà 4, Phường Minh Xuân,","type":"charging","address":"Tổ Dân Phố Tân Hà 4, Phường Minh Xuân, Tuyên Quang","ward":"Phường Minh Xuân","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.83086,"lng":105.192413,"count":4},{"code":"C.TQU0117","name":"Tư Nhân Nguyễn Thị Tiến, Tổ Dân Phố Tân Hà 4, Phường Minh Xuân","type":"charging","address":"Tổ Dân Phố Tân Hà 4, Phường Minh Xuân, Tuyên Quang","ward":"Phường Minh Xuân","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.830866,"lng":105.192421,"count":4},{"code":"C.TQU0116","name":"Tư Nhân Nguyễn Ngọc Vinh, Tổ Dân Phố Tân Hà 4, Phường Minh Xuân","type":"charging","address":"Tổ Dân Phố Tân Hà 4, Phường Minh Xuân, Tỉnh Tuyên Quang","ward":"Phường Minh Xuân","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.830866,"lng":105.192421,"count":4},{"code":"C.TQU0115","name":"Tư Nhân Trần Thị Hải Vân, BV Tổ Dân Phố Tân Hà 4, Phường Minh Xuân","type":"charging","address":"Tổ Dân Phố Tân Hà 4, Phường Minh Xuân, Tỉnh Tuyên Quang.","ward":"Phường Minh Xuân","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.830866,"lng":105.192421,"count":4},{"code":"C.TQU0088","name":"NQ FAST+ Hợp tác xã HOÀNG SƠN","type":"charging","address":"16 , đường Lê Đại Hành","ward":"Phường Minh Xuân","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.799101,"lng":105.2108,"count":2},{"code":"C.TQU0108","name":"Tư Nhân Vũ thị Huệ, Số 784 Đường Tôn Đức Thắng, Thị Trấn Yên Sơn","type":"charging","address":"Số 784 Đường Tôn Đức Thắng, Thị Trấn Yên Sơn","ward":"Thị trấn Yên Sơn","district":"Huyện Yên Sơn","province":"Tỉnh Tuyên Quang","lat":21.85364,"lng":105.15786,"count":4},{"code":"C.TQU0004","name":"Vincom Plaza Tuyên Quang - Tầng Hầm","type":"charging","address":"Hầm Vincom Plaza Tuyên Quang, Số 260, Đường Quang Trung, Phường Phan Thiết","ward":"Phường Phan Thiết","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.818693,"lng":105.205666,"count":2},{"code":"C.TQU0100","name":"HKD Hưng Châu, 283, TDP số 6, phường An Tường","type":"charging","address":"283, TDP số 6, phường An Tường","ward":"Phường An Tường","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.792995,"lng":105.218979,"count":6},{"code":"C.TQU0045","name":"Văn phòng Viettel Tuyên Quang Sơn Dương","type":"charging","address":"Huyện Sơn Dương","ward":"Thị trấn Sơn Dương","district":"Huyện Sơn Dương","province":"Tỉnh Tuyên Quang","lat":21.697298,"lng":105.397469,"count":2},{"code":"C.TQU0046","name":"Văn phòng Viettel Tuyên Quang Chiêm Hóa","type":"charging","address":"Huyện Chiêm Hóa","ward":"Thị trấn Vĩnh Lộc","district":"Huyện Chiêm Hóa","province":"Tỉnh Tuyên Quang","lat":22.1441,"lng":105.259003,"count":2},{"code":"C.TQU10208","name":"Tư Nhân Nguyễn Đức Duyên,  Thôn 4, xã Xuân Vân, tỉnh Tuyên Quang","type":"charging","address":"Thôn 4, xã Xuân Vân, tỉnh Tuyên Quang","ward":"Phường Phan Thiết","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.971066,"lng":105.276375,"count":1},{"code":"C.TQU10206","name":"Tư Nhân Lê Hải Triều, Thôn 5, Xã Hoàng Su Phì","type":"charging","address":"Thôn 5, Xã Hoàng Su Phì, Tuyên Quang","ward":"Thị trấn Vinh Quang","district":"Huyện Hoàng Su Phì","province":"Tỉnh Hà Giang","lat":22.737356,"lng":104.680748,"count":1},{"code":"C.TQU0131","name":"Tư Nhân Nguyễn Tiến Giang, Đội 3 Thôn Bảo An, Xã Quản Bạ","type":"charging","address":"Đội 3 Thôn Bảo An, Xã Quản Bạ, Tỉnh Tuyên Quang","ward":"Thị trấn Tam Sơn","district":"Huyện Quản Bạ","province":"Tỉnh Hà Giang","lat":23.079126,"lng":104.972717,"count":1},{"code":"C.TQU0133","name":"Tư nhân BÙI QUỐC PHÓNG, nhà 11 Ngõ 54 phố Cầu Mới,Hàm Yên,Tuyên Quang","type":"charging","address":"Số nhà 11 Ngõ 54 Tổ dân phố Cầu Mới Hàm Yên Tuyên Quang","ward":"Thị trấn Tân Yên","district":"Huyện Hàm Yên","province":"Tỉnh Tuyên Quang","lat":22.067904,"lng":105.032181,"count":1},{"code":"C.TQU10215","name":"Tư Nhân Phạm Văn Thể – Thôn Yên Phú 5, Xã Yên Phú, Tuyên Quang","type":"charging","address":"Số nhà 511, thôn Yên Phú 5, xã Yên Phú, tỉnh Tuyên Quang","ward":"Phường Trần Phú","district":"Thành phố Hà Giang","province":"Tỉnh Hà Giang","lat":22.739775,"lng":105.324829,"count":1},{"code":"C.TQU0124","name":"Tư Nhân Vũ  Đức Cường,  Tổ 3, Tt Việt Quang, huyện Bắc Quang, tỉnh Hà Giang.","type":"charging","address":"Tổ 3, Tt Việt Quang, huyện Bắc Quang, tỉnh Hà Giang.","ward":"Thị trấn Việt Quang","district":"Huyện Bắc Quang","province":"Tỉnh Hà Giang","lat":22.417917,"lng":104.808807,"count":1},{"code":"C.TQU0136","name":"Tư nhân NGUYỄN VI NHẬT, 57, ngõ 272 đường Tân Trào, tổ 7 Minh Xuân, Tuyên Quang","type":"charging","address":"57, lane 272 Tan Trao street, 7 Minh Xuan, Tuyen Quang","ward":"Phường Tân Quang","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.820829,"lng":105.213142,"count":1},{"code":"C.TQU0153","name":"Tư Nhân Nguyễn Thanh Hải, Thôn Bản Tùy, Xã Ngọc Đường","type":"charging","address":"Thôn Bản Tùy, Xã Ngọc Đường, Tuyên Quang","ward":"Xã Ngọc Đường","district":"Thành phố Hà Giang","province":"Tỉnh Hà Giang","lat":22.835379,"lng":105.018852,"count":1},{"code":"C.TQU0152","name":"Tư Nhân Triệu Văn Qúy, Thôn Nà Nghè, Xã Minh Quang","type":"charging","address":"Thôn Nà Nghè, Xã Minh Quang, Tuyên Quang","ward":"Xã Minh Quang","district":"Huyện Lâm Bình","province":"Tỉnh Tuyên Quang","lat":22.361286,"lng":105.10038,"count":1},{"code":"C.TQU0102","name":"Hộ Kinh Doanh Vũ Mạnh Cường - Điểm dừng chân Km23 Vị Xuyên quốc Lộ 2,","type":"charging","address":"Thôn 13 Xã Vị Xuyên","ward":"Thị trấn Vị Xuyên","district":"Huyện Vị Xuyên","province":"Tỉnh Hà Giang","lat":22.651134,"lng":104.987373,"count":4},{"code":"C.TQU0096","name":"Hộ kinh doanh Nguyễn Văn Duy - Thôn 4, Xã Việt Quang","type":"charging","address":"Thoôn 4, xã Việt Quang","ward":"Xã Minh Khương","district":"Huyện Hàm Yên","province":"Tỉnh Tuyên Quang","lat":22.41474,"lng":104.808823,"count":6},{"code":"C.TQU0099","name":"Tư nhân Vũ Huy Dư, Thôn Bờ Hồ, xã Kháng Nhật, huyện Sơn Dương, Tuyên Quang","type":"charging","address":"Thôn Bờ Hồ, xã Kháng Nhật, huyện Sơn Dương, Tuyên Quang","ward":"Xã Kháng Nhật","district":"Huyện Sơn Dương","province":"Tỉnh Tuyên Quang","lat":21.677412,"lng":105.442001,"count":1},{"code":"C.TQU0130","name":"Tư nhân Hà Tiến Lộc – TDP 11, Tân Hà, P. Minh Xuân, Tuyên Quang","type":"charging","address":"Tổ dân phố 11, Tân Hà, phường Minh Xuân, tỉnh Tuyên Quang","ward":"Phường Minh Xuân","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.83054,"lng":105.201408,"count":1},{"code":"C.TQU0089","name":"Nhượng Quyền Fast+ Phạm Thu Hương","type":"charging","address":"Thôn Đồng Chằm, Yên Sơn","ward":"Xã Trung Môn","district":"Huyện Yên Sơn","province":"Tỉnh Tuyên Quang","lat":21.885317,"lng":105.138496,"count":2},{"code":"C.TQU10248","name":"Tư nhân La Tiến Ngọc, Cây Xoan,  Đức Ninh, Hàm Yên, Tuyên Quang","type":"charging","address":"Cây Xoan,  Đức Ninh, Hàm Yên, Tuyên Quang","ward":"Xã Đức Ninh","district":"Huyện Hàm Yên","province":"Tỉnh Tuyên Quang","lat":21.945877,"lng":105.107567,"count":1},{"code":"C.TQU10189","name":"Tư Nhân Mai Quốc Trình, Thôn Quang, Xã Phù Lưu","type":"charging","address":"Thôn Quang, Xã Phù Lưu, Tỉnh Tuyên Quang","ward":"Xã Phù Lưu","district":"Huyện Hàm Yên","province":"Tỉnh Tuyên Quang","lat":22.157463,"lng":105.013817,"count":1},{"code":"C.TQU0094","name":"Nhượng Quyền Tư Nhân Đặng Thị Dịu","type":"charging","address":"Tổ 9, Phường Đội Cấn","ward":"Phường Đội Cấn","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.727308,"lng":105.227104,"count":1},{"code":"C.TQU0095","name":"NQ Tư Nhân Đỗ Xuân Trường","type":"charging","address":"Số 127 Đường Tân Trào, Tổ 5, Phường Nông Tiến","ward":"Phường Nông Tiến","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.814081,"lng":105.224953,"count":1},{"code":"C.TQU10418","name":"Tư nhân Trần Ngọc Hải,Tả Vi, Mèo Vạc, Tuyên Quang","type":"charging","address":"Tả Vi, Mèo Vạc, Tuyên Quang","ward":"Xã Tả Lủng","district":"Huyện Mèo Vạc","province":"Tỉnh Hà Giang","lat":23.184334,"lng":105.411453,"count":1},{"code":"C.TQU10235","name":"Tư Nhân Nguyễn Văn Tuấn,  Thôn Đoàn Kết, Xã tân Thanh, Tỉnh Tuyên Quang","type":"charging","address":"Thôn Đoàn Kết, Xã tân Thanh, Tỉnh Tuyên Quang","ward":"Phường Tân Quang","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.671907,"lng":105.431038,"count":1},{"code":"C.TQU0093","name":"Nhượng quyền Nguyễn Ngọc Linh","type":"charging","address":"Tổ 17, Phường Minh Xuân, TP Tuyên Quang, tỉnh Tuyên Quang","ward":"Phường Minh Xuân","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.828299,"lng":105.218651,"count":1},{"code":"C.TQU10398","name":"Tư nhân Nguyễn Văn Giầu,thôn Ao Dăm, Xã Xuân Vân, Tuyên Quang","type":"charging","address":"thôn Ao Dăm, Xã Xuân Vân, Tuyên Quang","ward":"Xã Xuân Vân","district":"Huyện Yên Sơn","province":"Tỉnh Tuyên Quang","lat":21.930197,"lng":105.198395,"count":1},{"code":"C.TQU0092","name":"Nhượng quyền Nguyễn Quốc Đạt","type":"charging","address":"Thôn Quyết Thắng - Xã Sơn Thuỷ - Tỉnh Tuyên Quang","ward":"Xã Sơn Nam","district":"Huyện Sơn Dương","province":"Tỉnh Tuyên Quang","lat":21.55402,"lng":105.462494,"count":1},{"code":"C.TQU5031","name":"Nguyễn Văn Vĩnh, Thôn Ao Búc, Xã Trung Yên, Huyên Sơn Dương, Tuyên Quang","type":"charging","address":"Thôn Ao Búc, Xã Trung Yên, Huyên Sơn Dương, Tuyên Quang","ward":"Xã Trung Yên","district":"Huyện Sơn Dương","province":"Tỉnh Tuyên Quang","lat":21.804726,"lng":105.432152,"count":1},{"code":"C.TQU0087","name":"Hà Quang Phượng, Thôn trung tâm, Xã Phúc Thịnh,Chiêm Hoá,Tuyên Quang","type":"charging","address":"Thôn trung tâm, Xã Phúc Thịnh,Chiêm Hoá,Tuyên Quang","ward":"Xã Phúc Thịnh","district":"Huyện Chiêm Hóa","province":"Tỉnh Tuyên Quang","lat":22.158098,"lng":105.239296,"count":1},{"code":"C.TQU0126","name":"Tư nhân NGUYỄN VĂN TUẤN,Thôn Đầm Hồng 3, xã Chiêm Hoá, tỉnh Tuyên Quang","type":"charging","address":"Thôn Đầm Hồng 3, xã Chiêm Hoá, tỉnh Tuyên Quang","ward":"Thị trấn Vĩnh Lộc","district":"Huyện Chiêm Hóa","province":"Tỉnh Tuyên Quang","lat":22.189716,"lng":105.331329,"count":1},{"code":"C.TQU0109","name":"Tư nhân Nguyễn Như Sơn, Thôn Trung Tâm, xã Chiêm Hoá, tỉnh Tuyên Quang","type":"charging","address":"Thôn Trung Tâm, xã Chiêm Hoá, tỉnh Tuyên Quang","ward":"Xã Trung Hà","district":"Huyện Chiêm Hóa","province":"Tỉnh Tuyên Quang","lat":22.158001,"lng":105.239281,"count":1},{"code":"C.TQU0119","name":"Tư Nhân Ngô Thế Tuyến Dũng, Tổ Dân Phố Kim Phú 1,Minh Xuân","type":"charging","address":"Tổ Dân Phố Kim Phú 1,Minh Xuân","ward":"Phường Minh Xuân","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.807581,"lng":105.184128,"count":1},{"code":"C.TQU0098","name":"Tư nhân NÔNG BẮC ĐIỆP,Thôn Pả Vi Thượng, Huyện Mèo Vạc, Tỉnh Hà Giang","type":"charging","address":"Thôn Pả Vi Thượng, Huyện Mèo Vạc, Tỉnh Hà Giang","ward":"Thị trấn Mèo Vạc","district":"Huyện Mèo Vạc","province":"Tỉnh Hà Giang","lat":23.191471,"lng":105.411026,"count":1},{"code":"C.TQU0154","name":"Tư nhân Trần Minh Cương,Thôn 5, xã Nà Hang, tỉnh Tuyên Quang","type":"charging","address":"Thôn 5, xã Nà Hang, tỉnh Tuyên Quang","ward":"Thị trấn Na Hang","district":"Huyện Na Hang","province":"Tỉnh Tuyên Quang","lat":22.345396,"lng":105.385056,"count":1},{"code":"C.TQU5026","name":"GOEV TXTX 280","type":"charging","address":"Tuyên Quang","ward":"Phường Phan Thiết","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":9.60228,"lng":105.192284,"count":1},{"code":"C.TQU10419","name":"Tư nhân Nguyễn Danh Toản,thôn Tả Vi Thượng, xã Mèo Vạc, tỉnh Tuyên Quang","type":"charging","address":"thôn Tả Vi Thượng, xã Mèo Vạc, tỉnh Tuyên Quang","ward":"Xã Tả Lủng","district":"Huyện Mèo Vạc","province":"Tỉnh Hà Giang","lat":23.179096,"lng":105.412079,"count":1},{"code":"C.TQU0083","name":"Nhượng quyền Vương Đỗ Thắng","type":"charging","address":"Km42 Thị trấn Tân Yên, huyện Hàm Yên, Tuyên Quang","ward":"Thị trấn Tân Yên","district":"Huyện Hàm Yên","province":"Tỉnh Tuyên Quang","lat":22.059841,"lng":105.032196,"count":1},{"code":"C.TQU0156","name":"Tư Nhân Trần Trung Quân, Số 7A, Ngõ 102, Đường Lê Duẩn, Tổ Dân Phố Tân Hà 11","type":"charging","address":"Số 7A, Ngõ 102, Đường Lê Duẩn, Tổ Dân Phố Tân Hà 11, Phường Minh Xuân, Tuyên Quang","ward":"Phường Tân Hà","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.829599,"lng":105.201416,"count":1},{"code":"C.TQU0090","name":"Nhượng Quyền Tư Nhân Nông Tiến Duy","type":"charging","address":"Tổ 17 Phường Phan Thiết","ward":"Phường Phan Thiết","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.834639,"lng":105.197304,"count":1},{"code":"C.TQU0091","name":"Nhượng Quyền Tư Nhân Tô Văn Định","type":"charging","address":"Thôn 19 Kim Phú","ward":"Xã Kim Phú","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.825222,"lng":105.203781,"count":1},{"code":"C.TQU10234","name":"Tư nhân Nguyễn Quang Tiếp -Thôn 2, xã Vị Xuyên, Tỉnh Tuyên Quang","type":"charging","address":"Thôn 2, xã Vị Xuyên,  Tuyên Quang","ward":"Phường Phan Thiết","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":22.668352,"lng":104.982277,"count":1},{"code":"C.TQU10223","name":"Tư nhân ĐỖ ĐÌNH ĐOÀN,Đường Trần Hưng đạo, TT. Yên Minh, Yên Minh, Tuyên Quang","type":"charging","address":"Đường Trần Hưng đạo, TT. Yên Minh, Yên Minh, Tuyên Quang","ward":"Thị trấn Yên Minh","district":"Huyện Yên Minh","province":"Tỉnh Hà Giang","lat":23.121115,"lng":105.162422,"count":1},{"code":"C.TQU0077","name":"NQ Tư Nhân Nguyễn Văn Vinh","type":"charging","address":"Thôn Đây Đa, Xã Thượng Ấm, Huyện Sơn Dương","ward":"Xã Thượng Ấm","district":"Huyện Sơn Dương","province":"Tỉnh Tuyên Quang","lat":21.724644,"lng":105.337395,"count":1},{"code":"C.TQU0076","name":"Nhượng quyền Trần Quốc Tuấn","type":"charging","address":"nhà số 10, xóm 6, xã Tràng Đà, tp Tuyên Quang, tỉnh Tuyên Quang","ward":"Xã Tràng Đà","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.8393,"lng":105.213028,"count":1},{"code":"C.TQU0072","name":"NQ Tư Nhân Phùng Văn Hải","type":"charging","address":"Thôn Bản Chợ, Thượng Lâm, Lâm Bình, Tuyên Quang","ward":"Xã Thượng Lâm","district":"Huyện Lâm Bình","province":"Tỉnh Tuyên Quang","lat":22.475054,"lng":105.297852,"count":1},{"code":"C.TQU0059","name":"Nhượng quyền Phòng Khám Nha Khoa Hải Vân 2 (Trụ Link)","type":"charging","address":"Tổ 01 Trần Nhân Tông, Phường Phan Thiết, thành phố Tuyên Quang, Tuyên Quang","ward":"Phường Phan Thiết","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.825899,"lng":105.202202,"count":2},{"code":"C.TQU0008","name":"TTTM Long Bình An","type":"charging","address":"Số 22, đường An Hoà, phường Đội Cấn","ward":"Phường Đội Cấn","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.7316,"lng":105.245155,"count":2},{"code":"C.TQU0003","name":"TTTM Đức Hùng Plaza","type":"charging","address":"Đường Phạm Văn Đồng, phường An Tường","ward":"Phường An Tường","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.791069,"lng":105.218277,"count":2},{"code":"C.TQU0074","name":"NQ Tư Nhân Lê Quốc Việt","type":"charging","address":"Tổ 9, Phường Mỹ Lâm, Thành Phố Tuyên Quang","ward":"Phường Mỹ Lâm","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.751083,"lng":105.12825,"count":1},{"code":"C.TQU0070","name":"Nhượng quyền GOEV - Công ty Royal Solar","type":"charging","address":"Nhà hàng 369, khu Lê Lợi 4, Phường Tân Quang","ward":"Phường Tân Quang","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.815599,"lng":105.207001,"count":1},{"code":"C.TQU0068","name":"Nhượng Quyền Tư Nhân Trần Văn Hoạt","type":"charging","address":"Thôn Chiến Thắng, Xã Đội Bình, Yên Sơn, Tuyên Quang","ward":"Xã Đội Bình","district":"Huyện Yên Sơn","province":"Tỉnh Tuyên Quang","lat":21.685318,"lng":105.248131,"count":1},{"code":"C.TQU10415","name":"TƯ NHÂN Phạm Bích Loan,số 19 A tổ dân phố 3 hưng thành,an tường,tuyên quang","type":"charging","address":"số 19 A tổ dân phố 3 hưng thành,an tường,tuyên quang","ward":"Phường Hưng Thành","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.806475,"lng":105.209251,"count":1},{"code":"C.TQU0069","name":"Nhượng Quyền Tư nhân Nguyễn Xuân Đoán","type":"charging","address":"Tổ 6, Phường Mỹ Lâm, Thành Phố Tuyên Quang","ward":"Phường Mỹ Lâm","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.749228,"lng":105.123802,"count":1},{"code":"C.TQU0067","name":"Nhượng Quyền Tư Nhân Mông Việt Hoàng","type":"charging","address":"Thôn Nà Thưa, Xã Côn Lôn, Huyện Na Hang, Tuyên Quang","ward":"Xã Côn Lôn","district":"Huyện Na Hang","province":"Tỉnh Tuyên Quang","lat":22.540932,"lng":105.462502,"count":1},{"code":"C.TQU0060","name":"Nhượng Quyền Tư Nhân Trần Văn Tùng","type":"charging","address":"Đội Bình, Yên Sơn, Tuyên Quang","ward":"Xã Đội Bình","district":"Huyện Yên Sơn","province":"Tỉnh Tuyên Quang","lat":21.672724,"lng":105.216988,"count":1},{"code":"C.TQU0066","name":"Nhượng quyền Phạm Xuân Tuyên","type":"charging","address":"phố Nguyên Hồng, tổ 13, Tân Hà, TP Tuyên Quang, tỉnh Tuyên Quang","ward":"Phường Tân Hà","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.824707,"lng":105.198273,"count":1},{"code":"C.TQU0063","name":"Nhượng Quyền Tư Nhân Nguyễn Phú Phượng","type":"charging","address":"Số 33, Đường Tố Hữu, Tổ 15, Phường Phan Thiết, Thành Phố Tuyên Quang, Tỉnh Tuyên Qua","ward":"Phường Phan Thiết","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.82007,"lng":105.201317,"count":1},{"code":"C.TQU0062","name":"Nhượng Quyền Tư Nhân Nguyễn Văn Hoàn","type":"charging","address":"Thôn 26, Xã Kim Phú, Thành Phố Tuyên Quang","ward":"Xã Kim Phú","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.745956,"lng":105.124023,"count":1},{"code":"C.TQU0058","name":"Nhượng Quyền Tư Nhân Đỗ Trường Giang","type":"charging","address":"Số 3 Lê Trọng Tấn, Tổ 13, Phường Tân Hà, Thành Phố Tuyên Quang","ward":"Phường Tân Hà","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.825756,"lng":105.197403,"count":1},{"code":"C.TQU0057","name":"Nhượng Quyền TN Lưu Tiến Quang","type":"charging","address":"Số 165 Quốc Lộ 37, Phường Mỹ Lâm, Thành Phố Tuyên Quang, Tuyên Quang","ward":"Phường Mỹ Lâm","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.771713,"lng":105.131973,"count":1},{"code":"C.TQU0056","name":"Nhượng Quyền Tư Nhân Nguyễn Minh Tiệp","type":"charging","address":"Liên Phương, Phúc Ứng, Sơn Dương, Tuyên Quang","ward":"Xã Phúc Ứng","district":"Huyện Sơn Dương","province":"Tỉnh Tuyên Quang","lat":21.665445,"lng":105.348022,"count":1},{"code":"C.TQU0049","name":"Nhượng quyền Flatform - Trần Trung Kiên","type":"charging","address":"Tổ 19, Phường Đội Cấn","ward":"Phường Đội Cấn","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.699574,"lng":105.234871,"count":1},{"code":"C.TQU0036","name":"Cửa hàng xăng dầu Kim Phú – Tuyên Quang","type":"charging","address":"Huyện Yên Sơn","ward":"Xã Quí Quân","district":"Huyện Yên Sơn","province":"Tỉnh Tuyên Quang","lat":21.7812,"lng":105.185402,"count":3},{"code":"C.TQU0044","name":"Cửa hàng xăng dầu PVOIL PT Sơn Nam","type":"charging","address":"Xã Sơn Nam","ward":"Xã Sơn Nam","district":"Huyện Sơn Dương","province":"Tỉnh Tuyên Quang","lat":21.520733,"lng":105.485558,"count":1},{"code":"C.TQU0042","name":"Cửa hàng xăng dầu Văn Phú","type":"charging","address":"Chợ Văn Phú, Xã Văn Phú","ward":"Xã Văn Phú","district":"Huyện Sơn Dương","province":"Tỉnh Tuyên Quang","lat":21.594042,"lng":105.292412,"count":3},{"code":"C.TQU0035","name":"Cửa hàng xăng dầu Hào Phú","type":"charging","address":"Đường tỉnh 186, Xã Hào Phú","ward":"Xã Hào Phú","district":"Huyện Sơn Dương","province":"Tỉnh Tuyên Quang","lat":21.548981,"lng":105.31749,"count":3},{"code":"C.TQU0038","name":"Cửa hàng xăng dầu Tân Hà","type":"charging","address":"Phường Tân Hà","ward":"Phường Tân Hà","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.840565,"lng":105.19619,"count":3},{"code":"C.TQU0031","name":"Cửa hàng xăng dầu Hải Đức","type":"charging","address":"Tổ 7, Phường Mỹ Lâm","ward":"Phường Mỹ Lâm","district":"Thành phố Tuyên Quang","province":"Tỉnh Tuyên Quang","lat":21.759022,"lng":105.105736,"count":3},{"code":"C.TQU0040","name":"Cửa hàng xăng dầu Tú Thịnh","type":"charging","address":"Thôn Cầu Quất, Xã Tú Thịnh","ward":"Xã Tú Thịnh","district":"Huyện Sơn Dương","province":"Tỉnh Tuyên Quang","lat":21.720547,"lng":105.405602,"count":4},{"code":"C.TQU0034","name":"Cửa hàng xăng dầu Cấp Tiến","type":"charging","address":"Thôn Phú Lương, Xã CẤp Tiến","ward":"Xã Cấp Tiến","district":"Huyện Sơn Dương","province":"Tỉnh Tuyên Quang","lat":21.707808,"lng":105.263786,"count":4},{"code":"C.TQU0033","name":"Cửa hàng xăng dầu Bình Xa","type":"charging","address":"Thôn Đồng Chùa 1, Xã Bình Xa","ward":"Xã Bình Xa","district":"Huyện Hàm Yên","province":"Tỉnh Tuyên Quang","lat":22.052073,"lng":105.116814,"count":2},{"code":"B.TQU10973","name":"Trạm đổi pin B.TQU10973","type":"swap","address":"Số 102, đường Điện Biên Phủ, tổ dân phố Đồng Lem, phường An Tường, tỉnh Tuyên Quang","ward":"Phường An Tường","district":"","province":"Tỉnh Tuyên Quang","lat":21.778509,"lng":105.233494,"count":3},{"code":"B.TQU11054","name":"Trạm đổi pin B.TQU11054","type":"swap","address":"Tổ dân phố Trung Môn 14, phường Minh Xuân,tỉnh Tuyên Quang","ward":"Phường Minh Xuân","district":"","province":"Tỉnh Tuyên Quang","lat":21.841267,"lng":105.182559,"count":2},{"code":"B.TQU11687","name":"Trạm đổi pin B.TQU11687","type":"swap","address":"Tổ 13, phường An Tường, tỉnh Tuyên Quang","ward":"Phường An Tường","district":"","province":"Tỉnh Tuyên Quang","lat":21.784458,"lng":105.221678,"count":1},{"code":"B.TQU10784","name":"Trạm đổi pin B.TQU10784","type":"swap","address":"Số nhà 347, tổ 10 phường An Tường, tỉnh Tuyên Quang","ward":"Phường An Tường","district":"","province":"Tỉnh Tuyên Quang","lat":21.790551,"lng":105.203527,"count":1},{"code":"B.TQU10859","name":"Trạm đổi pin B.TQU10859","type":"swap","address":"Thôn Việt Thành, xã Vị Xuyên, tỉnh Tuyên Quang","ward":"Xã Vị Xuyên","district":"","province":"Tỉnh Tuyên Quang","lat":22.600861,"lng":104.942793,"count":2},{"code":"B.TQU11056","name":"Trạm đổi pin B.TQU11056","type":"swap","address":"Tổ dân phố trung môn 12, phường Minh Xuân,tỉnh Tuyên Quang","ward":"Phường Minh Xuân","district":"","province":"Tỉnh Tuyên Quang","lat":21.844622,"lng":105.174921,"count":3},{"code":"B.TQU10975","name":"Trạm đổi pin B.TQU10975","type":"swap","address":"Số nhà 216a, đường Lê Đại Hành, Tdp Hưng thành 7,phường An Tường,tỉnh Tuyên Quang","ward":"Phường An Tường","district":"","province":"Tỉnh Tuyên Quang","lat":21.794437,"lng":105.207737,"count":1},{"code":"B.TQU11653","name":"Trạm đổi pin B.TQU11653","type":"swap","address":"Số 02 đường 17/8, phường Minh Xuân, tỉnh Tuyên Quang","ward":"Phường Minh Xuân","district":"","province":"Tỉnh Tuyên Quang","lat":21.819995,"lng":105.218217,"count":3},{"code":"B.TQU10697","name":"Trạm đổi pin B.TQU10697","type":"swap","address":"Thôn Cầu Chéo, xã Nhữ Khê, tỉnh Tuyên Quang","ward":"Xã Nhữ Khê","district":"","province":"Tỉnh Tuyên Quang","lat":21.662251,"lng":105.208197,"count":3},{"code":"B.TQU11024","name":"Trạm đổi pin B.TQU11024","type":"swap","address":"Số nhà 499, Thôn Tân Trung, xã Hàm Yên, tỉnh Tuyên Quang","ward":"Xã Hàm Yên","district":"","province":"Tỉnh Tuyên Quang","lat":22.048427,"lng":106.00083,"count":2},{"code":"B.TQU10825","name":"Trạm đổi pin B.TQU10825","type":"swap","address":"Tổ dân phố kim phú 11.,Phường Mỹ lâm, tỉnh Tuyên Quang","ward":"Phường Mỹ Lâm","district":"","province":"Tỉnh Tuyên Quang","lat":21.783456,"lng":105.190391,"count":3},{"code":"B.TQU10925","name":"Trạm đổi pin B.TQU10925","type":"swap","address":"Tổ dân phố Kim Phú 12, phường Mỹ Lâm, tỉnh Tuyên Quang","ward":"Phường Mỹ Lâm","district":"","province":"Tỉnh Tuyên Quang","lat":21.776578,"lng":105.188118,"count":2},{"code":"B.TQU10827","name":"Trạm đổi pin B.TQU10827","type":"swap","address":"Thôn Cây Trám, Tổ dân phố 4, Phường Mỹ Lâm,tỉnh Tuyên Quang","ward":"Phường Mỹ Lâm","district":"","province":"Tỉnh Tuyên Quang","lat":21.770146,"lng":105.130365,"count":3},{"code":"B.TQU11032","name":"Trạm đổi pin B.TQU11032","type":"swap","address":"Thôn Vĩnh Sơn , xã Tân Thanh ,Tỉnh Tuyên Quang","ward":"Xã Tân Thanh","district":"","province":"Tỉnh Tuyên Quang","lat":21.622158,"lng":106.00083,"count":3},{"code":"B.TQU11692","name":"Trạm đổi pin B.TQU11692","type":"swap","address":"Số 261, TDP số 6 An Tường,Tuyên Quang","ward":"Phường An Tường","district":"","province":"Tỉnh Tuyên Quang","lat":21.781663,"lng":105.240598,"count":2},{"code":"B.TQU10952","name":"Trạm đổi pin B.TQU10952","type":"swap","address":"Số 01 Phạm Văn Đồng , TDP Hưng Thành 2, phường An Tường, tỉnh Tuyên Quang","ward":"Phường An Tường","district":"","province":"Tỉnh Tuyên Quang","lat":21.810419,"lng":106.00083,"count":3},{"code":"B.TQU11893","name":"Trạm đổi pin B.TQU11893","type":"swap","address":"Số nhà 314, TDP Tân Hà 34,  Minh Xuân,  Tuyên Quang","ward":"Phường Minh Xuân","district":"","province":"Tỉnh Tuyên Quang","lat":21.820557,"lng":105.190018,"count":2},{"code":"B.TQU11896","name":"Trạm đổi pin B.TQU11896","type":"swap","address":"Số nhà 95, đường Phạm Văn Đồng,  An Tường,  Tuyên Quang","ward":"Phường An Tường","district":"","province":"Tỉnh Tuyên Quang","lat":21.807997,"lng":105.21121,"count":2},{"code":"B.TQU11043","name":"Trạm đổi pin B.TQU11043","type":"swap","address":"Đường Đại Lộ Hữu Nghị, tổ 23, Phường Hà Giang 1, Tỉnh Tuyên Quang","ward":"Phường Hà Giang 1","district":"","province":"Tỉnh Tuyên Quang","lat":22.815296,"lng":104.962357,"count":1},{"code":"B.TQU11894","name":"Trạm đổi pin B.TQU11894","type":"swap","address":"Số nhà 212,TDP Ỷ La 5,  Minh Xuân,  Tuyên Quang","ward":"Phường Minh Xuân","district":"","province":"Tỉnh Tuyên Quang","lat":21.810229,"lng":105.184878,"count":2},{"code":"B.TQU10978","name":"Trạm đổi pin B.TQU10978","type":"swap","address":"Thôn 13, Xã Tân Long, tỉnh Tuyên Quang","ward":"Xã Tân Long","district":"","province":"Tỉnh Tuyên Quang","lat":21.902547,"lng":106.00083,"count":3},{"code":"B.TQU10977","name":"Trạm đổi pin B.TQU10977","type":"swap","address":"Thôn 13, Xã Tân Long, tỉnh Tuyên Quang","ward":"Xã Tân Long","district":"","province":"Tỉnh Tuyên Quang","lat":21.907535,"lng":106.00083,"count":3},{"code":"B.TQU11093","name":"Trạm đổi pin B.TQU11093","type":"swap","address":"TDP Cơ Quan, xã Sơn Dương, tỉnh Tuyên Quang","ward":"Xã Sơn Dương","district":"","province":"Tỉnh Tuyên Quang","lat":21.696687,"lng":105.393531,"count":3},{"code":"B.TQU11029","name":"Trạm đổi pin B.TQU11029","type":"swap","address":"Số nhà 93, TDP Măng Ngọt, Xã Sơn Dương, Tỉnh Tuyên Quang","ward":"Xã Sơn Dương","district":"","province":"Tỉnh Tuyên Quang","lat":21.700311,"lng":106.00083,"count":3},{"code":"B.TQU10947","name":"Trạm đổi pin B.TQU10947","type":"swap","address":"Thôn Kỳ Lâm, xã Sơn Dương, tỉnh Tuyên Quang","ward":"Xã Sơn Dương","district":"","province":"Tỉnh Tuyên Quang","lat":21.695199,"lng":105.396923,"count":5},{"code":"B.TQU11053","name":"Trạm đổi pin B.TQU11053","type":"swap","address":"TDP Trung Môn 14, Phường Minh Xuân,tỉnh Tuyên Quang","ward":"Phường Minh Xuân","district":"","province":"Tỉnh Tuyên Quang","lat":21.840075,"lng":105.186642,"count":3},{"code":"B.TQU10946","name":"Trạm đổi pin B.TQU10946","type":"swap","address":"Thôn Xây Dượng, xã Sơn Dương, tỉnh Tuyên Quang","ward":"Xã Sơn Dương","district":"","province":"Tỉnh Tuyên Quang","lat":21.698201,"lng":105.393541,"count":3},{"code":"B.TQU10828","name":"Trạm đổi pin B.TQU10828","type":"swap","address":"Thôn 17, TDP4, Phường Mỹ Lâm, tỉnh Tuyên Quang","ward":"Phường Mỹ Lâm","district":"","province":"Tỉnh Tuyên Quang","lat":21.768836,"lng":105.128074,"count":3},{"code":"B.TQU11031","name":"Trạm đổi pin B.TQU11031","type":"swap","address":"Thôn Khôn Ráng, Xã Sơn Dương, Tỉnh Tuyên Quang","ward":"Xã Sơn Dương","district":"","province":"Tỉnh Tuyên Quang","lat":21.644496,"lng":106.00083,"count":3},{"code":"B.TQU10581","name":"Trạm đổi pin B.TQU10581","type":"swap","address":"Thôn 14, xã Vị Xuyên, Vị Xuyên, Tuyên Quang","ward":"Xã Vị Xuyên","district":"","province":"Tỉnh Tuyên Quang","lat":22.667105,"lng":104.988559,"count":2},{"code":"B.TQU10441","name":"Trạm đổi pin B.TQU10441","type":"swap","address":"tổ dân phố tân hải thành ,phường Bình Thuận, tỉnh tuyên quang","ward":"Phường Bình Thuận","district":"","province":"Tỉnh Tuyên Quang","lat":21.749376,"lng":105.229964,"count":1},{"code":"B.TQU10543","name":"Trạm đổi pin B.TQU10543","type":"swap","address":"Thôn An Tiến, xã Hùng An, tỉnh Tuyên Quang","ward":"Xã Hùng An","district":"","province":"Tỉnh Tuyên Quang","lat":22.342548,"lng":104.871598,"count":1},{"code":"B.TQU11749","name":"Trạm đổi pin B.TQU11749","type":"swap","address":"Thôn Ngòi hóp, xã Trấn Yên, tỉnh Lào Cai.","ward":"Xã Trấn Yên","district":"","province":"Tỉnh Lào Cai","lat":22.624425,"lng":104.943302,"count":3},{"code":"B.TQU00031","name":"Trạm đổi pin B.TQU00031","type":"swap","address":"Tổ 7, Phường Mỹ Lâm","ward":"Phường Mỹ Lâm","district":"","province":"Tỉnh Tuyên Quang","lat":21.759022,"lng":105.105736,"count":4},{"code":"B.TQU00052","name":"Trạm đổi pin B.TQU00052","type":"swap","address":"Thôn Phú An, Xã Thái Long","ward":"Phường Bình Thuận","district":"","province":"Tỉnh Tuyên Quang","lat":21.741411,"lng":105.231201,"count":4},{"code":"B.TQU00027","name":"Trạm đổi pin B.TQU00027","type":"swap","address":"Quốc lộ 37, Xã Thái Bình","ward":"Xã Yên Sơn","district":"","province":"Tỉnh Tuyên Quang","lat":21.780275,"lng":105.293159,"count":4},{"code":"B.TQU11723","name":"Trạm đổi pin B.TQU11723","type":"swap","address":"Thôn Đào Kiều 1, xã Yên Bình, tỉnh Lào Cai.","ward":"Xã Yên Bình","district":"","province":"Tỉnh Tuyên Quang","lat":22.631311,"lng":104.966266,"count":3},{"code":"B.TQU10490","name":"Trạm đổi pin B.TQU10490","type":"swap","address":"Thôn 26, xã Vị Xuyên, tỉnh Tuyên Quang","ward":"Xã Vị Xuyên","district":"","province":"Tỉnh Tuyên Quang","lat":22.625198,"lng":104.94975,"count":2},{"code":"B.TQU10868","name":"Trạm đổi pin B.TQU10868","type":"swap","address":"Số 9, tổ dân phố Minh Phong, xã Yên Sơn, tỉnh Tuyên Quang","ward":"Xã Yên Sơn","district":"","province":"Tỉnh Tuyên Quang","lat":21.862181,"lng":105.157882,"count":1},{"code":"B.TQU10848","name":"Trạm đổi pin B.TQU10848","type":"swap","address":"TDP Trung Môn 12, phường Minh Xuân, tỉnh Tuyên Quang","ward":"Phường Minh Xuân","district":"","province":"Tỉnh Tuyên Quang","lat":21.848825,"lng":105.16853,"count":3},{"code":"B.TQU00010","name":"Trạm đổi pin B.TQU00010","type":"swap","address":"Quốc lộ 2, thôn Hòa Bình, xã Đội Bình","ward":"Xã Yên Sơn","district":"","province":"Tỉnh Tuyên Quang","lat":21.672562,"lng":105.210373,"count":4},{"code":"B.TQU00026","name":"Trạm đổi pin B.TQU00026","type":"swap","address":"Phúc ứng","ward":"Xã Sơn Dương","district":"","province":"Tỉnh Tuyên Quang","lat":21.6422,"lng":105.382797,"count":4},{"code":"B.TQU10238","name":"Trạm đổi pin B.TQU10238","type":"swap","address":"số 293 đường Trần Phú , tổ 5 , phường Hà Giang 2 , tỉnh Tuyên Quang","ward":"Phường Hà Giang 2","district":"","province":"Tỉnh Tuyên Quang","lat":22.82818,"lng":104.9876,"count":1},{"code":"B.TQU10237","name":"Trạm đổi pin B.TQU10237","type":"swap","address":"Số 115 đường Trần Phú, tổ 15, phường Hà Giang 2 , tỉnh Tuyên Quang.","ward":"Phường Hà Giang 2","district":"","province":"Tỉnh Tuyên Quang","lat":22.82121,"lng":104.9874,"count":1},{"code":"B.TQU10249","name":"Trạm đổi pin B.TQU10249","type":"swap","address":"Km42 Hàm Yên, Tuyên Quang","ward":"Xã Hàm Yên","district":"","province":"Tỉnh Tuyên Quang","lat":22.072248,"lng":105.03269,"count":1},{"code":"B.TQU10279","name":"Trạm đổi pin B.TQU10279","type":"swap","address":"Số 115, đường Tân Trào, Xã Chiêm Hóa, Tỉnh Tuyên Quang","ward":"Xã Chiêm Hóa","district":"","province":"Tỉnh Tuyên Quang","lat":22.150808,"lng":105.272416,"count":1},{"code":"B.TQU10251","name":"Trạm đổi pin B.TQU10251","type":"swap","address":"Số Nhà 283, Tổ Dân Phố Số 6, phường, Tuyên Quang, Việt Nam","ward":"Phường Hà Giang 2","district":"","province":"Tỉnh Tuyên Quang","lat":21.792997,"lng":105.218974,"count":1},{"code":"B.TQU10282","name":"Trạm đổi pin B.TQU10282","type":"swap","address":"Pả Vi, Mèo Vạc, Hà Giang","ward":"Xã Ngọc Đường","district":"","province":"Tỉnh Tuyên Quang","lat":23.182599,"lng":105.412022,"count":1},{"code":"B.TQU10523","name":"Trạm đổi pin B.TQU10523","type":"swap","address":"Số nhà 1127, thôn 09, xã Bắc Quang, tỉnh Tuyên Quang","ward":"Xã Bắc Quang","district":"","province":"Tỉnh Tuyên Quang","lat":22.397438,"lng":104.820983,"count":3},{"code":"B.TQU10797","name":"Trạm đổi pin B.TQU10797","type":"swap","address":"Thôn Vạt, xã Vị Xuyên, tỉnh Tuyên Quang","ward":"Xã Vị Xuyên","district":"","province":"Tỉnh Tuyên Quang","lat":22.619994,"lng":104.94192,"count":3},{"code":"B.TQU00125","name":"Trạm đổi pin B.TQU00125","type":"swap","address":"Q6FH+QWC An Tường, Tuyên Quang, Việt Nam","ward":"Phường An Tường","district":"","province":"Tỉnh Tuyên Quang","lat":21.774444,"lng":105.22978,"count":1},{"code":"B.TQU10798","name":"Trạm đổi pin B.TQU10798","type":"swap","address":"Thôn Vạt, xã Vị Xuyên, tỉnh Tuyên Quang","ward":"Xã Vị Xuyên","district":"","province":"Tỉnh Tuyên Quang","lat":22.62354,"lng":104.940587,"count":3},{"code":"B.TQU10583","name":"Trạm đổi pin B.TQU10583","type":"swap","address":"Thôn 5, xã Vị Xuyên, Vị Xuyên, Tuyên Quang","ward":"Xã Vị Xuyên","district":"","province":"Tỉnh Tuyên Quang","lat":22.6673,"lng":104.984361,"count":1},{"code":"B.TQU10392","name":"Trạm đổi pin B.TQU10392","type":"swap","address":"Tổ dân phố 01, Phường Nông Tiến, Tỉnh Tuyên Quang","ward":"Phường Nông Tiến","district":"","province":"Tỉnh Tuyên Quang","lat":21.822675,"lng":105.227146,"count":2},{"code":"B.TQU10376","name":"Trạm đổi pin B.TQU10376","type":"swap","address":"Tổ 12, thị trấn Việt Quang, huyện Bắc Quang, Tuyên Quang","ward":"Xã Bắc Quang","district":"","province":"Tỉnh Tuyên Quang","lat":22.396963,"lng":104.82156,"count":4},{"code":"B.TQU10437","name":"Trạm đổi pin B.TQU10437","type":"swap","address":"Tổ 11, Thôn Pắc Há, xã Bắc Quang, Tuyên Quang","ward":"Xã Bắc Quang","district":"","province":"Tỉnh Tuyên Quang","lat":22.382788,"lng":104.83509,"count":2},{"code":"B.TQU10727","name":"Trạm đổi pin B.TQU10727","type":"swap","address":"Thôn Việt Thành, xã Vị Xuyên, tỉnh Tuyên Quang","ward":"Xã Vị Xuyên","district":"","province":"Tỉnh Tuyên Quang","lat":22.61398,"lng":104.942418,"count":3},{"code":"B.TQU10780","name":"Trạm đổi pin B.TQU10780","type":"swap","address":"Xóm đèo hoa, xã yên sơn, tỉnh tuyên quang","ward":"Xã Yên Sơn","district":"","province":"Tỉnh Tuyên Quang","lat":21.824964,"lng":105.135203,"count":2},{"code":"B.TQU10720","name":"Trạm đổi pin B.TQU10720","type":"swap","address":"Thôn Trung Hà, xã Nhữ Khê, tỉnh Tuyên Quang","ward":"Xã Nhữ Khê","district":"","province":"Tỉnh Tuyên Quang","lat":21.713646,"lng":105.133034,"count":3},{"code":"B.TQU10887","name":"Trạm đổi pin B.TQU10887","type":"swap","address":"Số nhà 312 đường Phạm Ngũ Lão , phường Mỹ Lâm, tỉnh Tuyên Quang","ward":"Phường Mỹ Lâm","district":"","province":"Tỉnh Tuyên Quang","lat":21.769259,"lng":105.137117,"count":3},{"code":"B.TQU10761","name":"Trạm đổi pin B.TQU10761","type":"swap","address":"Thôn Hạ, xã Bằng Lang, tỉnh Tuyên Quang","ward":"Xã Bằng Lang","district":"","province":"Tỉnh Tuyên Quang","lat":22.364688,"lng":104.677256,"count":1},{"code":"B.TQU10482","name":"Trạm đổi pin B.TQU10482","type":"swap","address":"Xóm 1, thôn Cầu Thủy, xã Bắc Quang, tỉnh Tuyên Quang","ward":"Xã Bắc Quang","district":"","province":"Tỉnh Tuyên Quang","lat":22.413407,"lng":104.791441,"count":2},{"code":"B.TQU10866","name":"Trạm đổi pin B.TQU10866","type":"swap","address":"Số nhà 45,TDP 10, phường Nông Tiến, tỉnh Tuyên Quang","ward":"Phường Nông Tiến","district":"","province":"Tỉnh Tuyên Quang","lat":21.814598,"lng":105.233744,"count":3},{"code":"B.TQU10890","name":"Trạm đổi pin B.TQU10890","type":"swap","address":"TDP Chanh 1, phường Nông Tiến, tỉnh Tuyên Quang","ward":"Phường Nông Tiến","district":"","province":"Tỉnh Tuyên Quang","lat":21.815053,"lng":105.242348,"count":2},{"code":"B.TQU10725","name":"Trạm đổi pin B.TQU10725","type":"swap","address":"Thôn Việt Thành, xã Vị Xuyên, tỉnh Tuyên Quang","ward":"Xã Vị Xuyên","district":"","province":"Tỉnh Tuyên Quang","lat":22.602018,"lng":104.943053,"count":3},{"code":"B.TQU10867","name":"Trạm đổi pin B.TQU10867","type":"swap","address":"TDP Trung Môn 12, Phường Minh Xuân, Tỉnh Tuyên Quang","ward":"Phường Minh Xuân","district":"","province":"Tỉnh Tuyên Quang","lat":21.842428,"lng":105.175853,"count":2},{"code":"B.TQU10445","name":"Trạm đổi pin B.TQU10445","type":"swap","address":"số 37, ngõ 02, phố ngọc kim, tổ dân phố hưng thành 10, phường an tường, tỉnh tuyên quang","ward":"Phường An Tường","district":"","province":"Tỉnh Tuyên Quang","lat":21.807501,"lng":105.20676,"count":2},{"code":"B.TQU10850","name":"Trạm đổi pin B.TQU10850","type":"swap","address":"Thôn Hưng Quốc, xã Nhữ Khê, tỉnh Tuyên Quang","ward":"Xã Nhữ Khê","district":"","province":"Tỉnh Tuyên Quang","lat":21.681575,"lng":105.193338,"count":3},{"code":"B.TQU10384","name":"Trạm đổi pin B.TQU10384","type":"swap","address":"quốc lộ 37, tổ 7, phường An Tường, Tỉnh Tuyên Quang","ward":"Phường An Tường","district":"","province":"Tỉnh Tuyên Quang","lat":21.792134,"lng":105.198503,"count":2},{"code":"B.TQU10524","name":"Trạm đổi pin B.TQU10524","type":"swap","address":"Số nhà 02, Đường Võ Thị Sáu, xã Bắc Quang, tỉnh Tuyên Quang","ward":"Xã Bắc Quang","district":"","province":"Tỉnh Tuyên Quang","lat":22.399233,"lng":104.822439,"count":2},{"code":"B.TQU10584","name":"Trạm đổi pin B.TQU10584","type":"swap","address":"Thôn 23, xã Vị Xuyên, Vị Xuyên, Tuyên Quang","ward":"Xã Vị Xuyên","district":"","province":"Tỉnh Tuyên Quang","lat":22.625506,"lng":104.957919,"count":1},{"code":"B.TQU10776","name":"Trạm đổi pin B.TQU10776","type":"swap","address":"Thôn Hồng Hà, xã Như Khê, tỉnh Tuyên Quang","ward":"Xã Nhữ Khê","district":"","province":"Tỉnh Tuyên Quang","lat":21.68991,"lng":105.170479,"count":3},{"code":"B.TQU10239","name":"Trạm đổi pin B.TQU10239","type":"swap","address":"số 225a , đường Lý Thường Kiệt, tổ 3 phường Hà Giang 2 , tỉnh Tuyên Quang.","ward":"Phường Hà Giang 2","district":"","province":"Tỉnh Tuyên Quang","lat":22.84116,"lng":105.0001,"count":1},{"code":"B.TQU10216","name":"Trạm đổi pin B.TQU10216","type":"swap","address":"Km 12 đường đi tq hà nội Tổ 10 phường bình thuận Tuyên Quang","ward":"Phường Hà Giang 2","district":"","province":"Tỉnh Tuyên Quang","lat":21.7221,"lng":105.2309,"count":1},{"code":"B.TQU10440","name":"Trạm đổi pin B.TQU10440","type":"swap","address":"Số nhà 1196, Thôn 09, xã Bắc Quang, Tuyên Quang","ward":"Xã Bắc Quang","district":"","province":"Tỉnh Tuyên Quang","lat":22.397573,"lng":104.8202,"count":2},{"code":"B.TQU10830","name":"Trạm đổi pin B.TQU10830","type":"swap","address":"Tổ dân phố Lập Thành, phương Mỹ Lâm,tỉnh Tuyên Quang","ward":"Phường Mỹ Lâm","district":"","province":"Tỉnh Tuyên Quang","lat":21.746834,"lng":105.090318,"count":4},{"code":"B.TQU10829","name":"Trạm đổi pin B.TQU10829","type":"swap","address":"Tổ dân phố Mỹ Lâm 6, phường Mỹ Lâm,tỉnh Tuyên Quang","ward":"Phường Mỹ Lâm","district":"","province":"Tỉnh Tuyên Quang","lat":21.763816,"lng":105.12045,"count":3},{"code":"B.TQU10826","name":"Trạm đổi pin B.TQU10826","type":"swap","address":"Tổ dân phố 1, phường Mỹ Lâm,tỉnh Tuyên Quang","ward":"Phường Mỹ Lâm","district":"","province":"Tỉnh Tuyên Quang","lat":21.768796,"lng":105.146342,"count":2},{"code":"B.TQU10824","name":"Trạm đổi pin B.TQU10824","type":"swap","address":"Số nhà 127,đường Tân Hà,tổ 12 phường Minh Xuân,tỉnh Tuyên Quang","ward":"Phường Minh Xuân","district":"","province":"Tỉnh Tuyên Quang","lat":21.829747,"lng":105.208864,"count":2},{"code":"B.TQU10846","name":"Trạm đổi pin B.TQU10846","type":"swap","address":"Thôn 17 Kim Phú, Phường Mỹ Lâm, Tỉnh Tuyên Quang","ward":"Phường Mỹ Lâm","district":"","province":"Tỉnh Tuyên Quang","lat":21.82964,"lng":105.207083,"count":2},{"code":"B.TQU10385","name":"Trạm đổi pin B.TQU10385","type":"swap","address":"sn135 , đường Võ Chí Công, phường An Tường, tỉnh Tuyên Quang","ward":"Phường An Tường","district":"","province":"Tỉnh Tuyên Quang","lat":21.794312,"lng":105.21557,"count":2},{"code":"B.TQU10397","name":"Trạm đổi pin B.TQU10397","type":"swap","address":"Thôn 15 , Xã Mỹ Bằng, Huyện Yên Sơn, Tỉnh Tuyên Quang","ward":"Xã Yên Sơn","district":"","province":"Tỉnh Tuyên Quang","lat":21.752921,"lng":105.066944,"count":2},{"code":"B.TQU10759","name":"Trạm đổi pin B.TQU10759","type":"swap","address":"Thôn Việt Thành, xã Hùng An, tỉnh tuyên quang","ward":"Xã Hùng An","district":"","province":"Tỉnh Tuyên Quang","lat":22.36036,"lng":104.795637,"count":1},{"code":"B.TQU10771","name":"Trạm đổi pin B.TQU10771","type":"swap","address":"Thôn Tân Lập, xã Thái Hòa, tỉnh Tuyên Quang","ward":"Xã Thái Hòa","district":"","province":"Tỉnh Tuyên Quang","lat":21.941553,"lng":105.123191,"count":1},{"code":"B.TQU10439","name":"Trạm đổi pin B.TQU10439","type":"swap","address":"Số nhà 1196, Thôn 09, xã Bắc Quang, Tuyên Quang","ward":"Xã Bắc Quang","district":"","province":"Tỉnh Tuyên Quang","lat":22.392402,"lng":104.83336,"count":2},{"code":"B.TQU10924","name":"Trạm đổi pin B.TQU10924","type":"swap","address":"Số nhà 33- Thôn Xây Dựng- xã Sơn Dương- Tỉnh Tuyên Quang","ward":"Xã Sơn Dương","district":"","province":"Tỉnh Tuyên Quang","lat":21.699431,"lng":105.394395,"count":1},{"code":"B.TQU10528","name":"Trạm đổi pin B.TQU10528","type":"swap","address":"tổ dân phố cầu đá phường an tường tỉnh tuyên quang","ward":"Phường An Tường","district":"","province":"Tỉnh Tuyên Quang","lat":21.76346,"lng":105.221565,"count":2},{"code":"B.TQU10284","name":"Trạm đổi pin B.TQU10284","type":"swap","address":"Tiệm bánh sinh Nhật Tùng Vân,Thôn 1,xã Yên Sơn, Tuyên Quang","ward":"Xã Yên Sơn","district":"","province":"Tỉnh Tuyên Quang","lat":21.85667,"lng":105.36106,"count":1},{"code":"B.TQU10205","name":"Trạm đổi pin B.TQU10205","type":"swap","address":"R675+RR9, Lê Lợi, P. Tân Quang, Tuyên Quang, Việt Nam","ward":"Xã Tân Quang","district":"","province":"Tỉnh Tuyên Quang","lat":21.814473,"lng":105.209279,"count":1},{"code":"B.TQU00145","name":"Trạm đổi pin B.TQU00145","type":"swap","address":"Thôn Quyết Thắng, Xã Sơn Thuỷ","ward":"Phường Hà Giang 2","district":"","province":"Tỉnh Tuyên Quang","lat":21.555861,"lng":105.461086,"count":1},{"code":"B.TQU10250","name":"Trạm đổi pin B.TQU10250","type":"swap","address":"Tổ dân phố Liên Thịnh, phường An Tường, Tuyên Quang","ward":"Xã Ngọc Đường","district":"","province":"Tỉnh Tuyên Quang","lat":21.771169,"lng":105.21401,"count":1},{"code":"B.TQU00148","name":"Trạm đổi pin B.TQU00148","type":"swap","address":"thôn Vĩnh Thịnh","ward":"Xã Chiêm Hóa","district":"","province":"Tỉnh Tuyên Quang","lat":22.14478,"lng":105.25837,"count":1},{"code":"B.TQU00011","name":"Trạm đổi pin B.TQU00011","type":"swap","address":"Hầm B1, Vincom Plaza Tuyên Quang, số 260, đường Quang Trung","ward":"Phường Minh Xuân","district":"","province":"Tỉnh Tuyên Quang","lat":20.988386,"lng":105.941887,"count":2},{"code":"B.TQU10321","name":"Trạm đổi pin B.TQU10321","type":"swap","address":"784 đường Tôn Đức Thắng, thị trấn yên Sơn, tỉnh Tuyên Quang","ward":"Xã Yên Sơn","district":"","province":"Tỉnh Tuyên Quang","lat":21.8537,"lng":105.1579,"count":2},{"code":"B.TQU10005","name":"Trạm đổi pin B.TQU10005","type":"swap","address":"Số nhà 64-66, Xã Quản Bạ, Tỉnh Tuyên Quang, Việt Nam","ward":"Xã Quản Bạ","district":"","province":"Tỉnh Tuyên Quang","lat":23.064776,"lng":104.99103,"count":1},{"code":"B.TQU10003","name":"Trạm đổi pin B.TQU10003","type":"swap","address":"Thửa đất số 106, tờ bản đồ số 21, Xóm Thành Tâm, Xã Đồng Văn, Tỉnh Tuyên Quang, Việt Nam","ward":"Xã Đồng Văn","district":"","province":"Tỉnh Tuyên Quang","lat":23.277016,"lng":105.364295,"count":2},{"code":"B.TQU10179","name":"Trạm đổi pin B.TQU10179","type":"swap","address":"Đường Quốc Lộ 2, tổ dân phố Tân An, Xã Hàm Yên, Tỉnh Tuyên Quang, Việt Nam","ward":"Phường Hà Giang 2","district":"","province":"Tỉnh Tuyên Quang","lat":22.058082,"lng":105.0329,"count":2},{"code":"B.TQU10025","name":"Trạm đổi pin B.TQU10025","type":"swap","address":"Tỉnh Tuyên Quang","ward":"Tỉnh Tuyên Quang","district":"","province":"Tỉnh Tuyên Quang","lat":1,"lng":1,"count":1},{"code":"B.TQU10019","name":"Trạm đổi pin B.TQU10019","type":"swap","address":"Tỉnh Tuyên Quang","ward":"Tỉnh Tuyên Quang","district":"","province":"Tỉnh Tuyên Quang","lat":1,"lng":1,"count":1},{"code":"B.TQU10004","name":"Trạm đổi pin B.TQU10004","type":"swap","address":"Tổ 2, Xã Yên Minh, Tỉnh Tuyên Quang, Việt Nam","ward":"Xã Yên Minh","district":"","province":"Tỉnh Tuyên Quang","lat":23.119403,"lng":105.13737,"count":2},{"code":"B.TQU","name":"Trạm đổi pin B.TQU","type":"swap","address":"Q6W8+23P An Tường, Tuyên Quang, Việt Nam","ward":"#N/A","district":"","province":"#N/A","lat":21.7951,"lng":105.2152,"count":2},{"code":"B.TQU10024","name":"Trạm đổi pin B.TQU10024","type":"swap","address":"Đường Hải Dương, Thai Long Commune, Bình Thuận Ward, Tuyên Quang","ward":"Phường Bình Thuận","district":"","province":"Tỉnh Tuyên Quang","lat":21.733482,"lng":105.23231,"count":1},{"code":"B.TQU00040","name":"Trạm đổi pin B.TQU00040","type":"swap","address":"Thôn Cầu Quất, Xã Tú Thịnh","ward":"Xã Sơn Dương","district":"","province":"Tỉnh Tuyên Quang","lat":21.720547,"lng":105.405602,"count":2},{"code":"B.TQU00150","name":"Trạm đổi pin B.TQU00150","type":"swap","address":"Tỉnh Tuyên Quang","ward":"Phường Hà Giang 2","district":"","province":"Tỉnh Tuyên Quang","lat":22.1423,"lng":105.2724,"count":1},{"code":"B.TQU00036","name":"Trạm đổi pin B.TQU00036","type":"swap","address":"Huyện Yên Sơn","ward":"Xã Yên Sơn","district":"","province":"Tỉnh Tuyên Quang","lat":21.708,"lng":105.2637,"count":1},{"code":"B.TQU00144","name":"Trạm đổi pin B.TQU00144","type":"swap","address":"Tỉnh Tuyên Quang","ward":"Xã Tân Trào","district":"","province":"Tỉnh Tuyên Quang","lat":21.761972,"lng":105.437972,"count":1},{"code":"B.TQU00030","name":"Trạm đổi pin B.TQU00030","type":"swap","address":"Thôn Nà Ngà, Xã Ngọc Hội","ward":"Xã Chiêm Hóa","district":"","province":"Tỉnh Tuyên Quang","lat":22.148243,"lng":105.283913,"count":1},{"code":"B.TQU00149","name":"Trạm đổi pin B.TQU00149","type":"swap","address":"Tỉnh Tuyên Quang","ward":"Phường Hà Giang 2","district":"","province":"Tỉnh Tuyên Quang","lat":22.142385,"lng":105.27235,"count":1},{"code":"B.TQU00143","name":"Trạm đổi pin B.TQU00143","type":"swap","address":"Tỉnh Tuyên Quang","ward":"Phường Hà Giang 2","district":"","province":"Tỉnh Tuyên Quang","lat":21.8177,"lng":105.2082,"count":1},{"code":"B.TQU00028","name":"Trạm đổi pin B.TQU00028","type":"swap","address":"Thôn Trục Trì, Xã Yên Nguyên","ward":"Xã Chiêm Hóa","district":"","province":"Tỉnh Tuyên Quang","lat":22.071905,"lng":105.174988,"count":1},{"code":"B.TQU00147","name":"Trạm đổi pin B.TQU00147","type":"swap","address":"Tỉnh Tuyên Quang","ward":"Phường Hà Giang 2","district":"","province":"Tỉnh Tuyên Quang","lat":21.8239,"lng":105.1976,"count":1},{"code":"B.TQU00033","name":"Trạm đổi pin B.TQU00033","type":"swap","address":"Thôn Đồng Chùa 1, Xã Bình Xa","ward":"Xã Hàm Yên","district":"","province":"Tỉnh Tuyên Quang","lat":21.5943,"lng":105.2927,"count":1},{"code":"B.TQU00038","name":"Trạm đổi pin B.TQU00038","type":"swap","address":"Phường Tân Hà","ward":"Phường Minh Xuân","district":"","province":"Tỉnh Tuyên Quang","lat":21.7814,"lng":105.1852,"count":1},{"code":"B.TQU00029","name":"Trạm đổi pin B.TQU00029","type":"swap","address":"Thôn Pắc Nghiêng, Xã Kiến Thiết","ward":"Xã Kiến Thiết","district":"","province":"Tỉnh Tuyên Quang","lat":21.991815,"lng":105.312599,"count":1},{"code":"B.TQU10181","name":"Trạm đổi pin B.TQU10181","type":"swap","address":"CHXD Thanh Hương 1- TDP Minh Hải, Phường Thuận An, TP Huế","ward":"Phường Hà Giang 2","district":"","province":"Tỉnh Tuyên Quang","lat":21.817961,"lng":105.20759,"count":2},{"code":"B.TQU00146","name":"Trạm đổi pin B.TQU00146","type":"swap","address":"Tỉnh Tuyên Quang","ward":"Phường Hà Giang 2","district":"","province":"Tỉnh Tuyên Quang","lat":21.696338,"lng":105.38258,"count":1},{"code":"B.TQU10495","name":"Trạm đổi pin B.TQU10495","type":"swap","address":"Thôn 8, xã Vị Xuyên, tỉnh Tuyên Quang","ward":"Xã Vị Xuyên","district":"","province":"Tỉnh Tuyên Quang","lat":22.674235,"lng":104.977532,"count":1},{"code":"B.TQU10492","name":"Trạm đổi pin B.TQU10492","type":"swap","address":"Thôn 8, xã Vị Xuyên, tỉnh Tuyên Quang","ward":"Xã Vị Xuyên","district":"","province":"Tỉnh Tuyên Quang","lat":22.647868,"lng":104.983312,"count":1},{"code":"B.TQU10494","name":"Trạm đổi pin B.TQU10494","type":"swap","address":"Thôn Minh Thành, xã Linh Hồ, tỉnh Tuyên Quang","ward":"Xã Linh Hồ","district":"","province":"Tỉnh Tuyên Quang","lat":22.576439,"lng":104.978245,"count":3},{"code":"B.TQU10760","name":"Trạm đổi pin B.TQU10760","type":"swap","address":"Thôn Việt Hà, xã Hùng An, tỉnh tuyên quang","ward":"Xã Hùng An","district":"","province":"Tỉnh Tuyên Quang","lat":22.36948,"lng":104.768279,"count":1},{"code":"B.TQU10226","name":"Trạm đổi pin B.TQU10226","type":"swap","address":"Tỉnh Tuyên Quang","ward":"Tỉnh Tuyên Quang","district":"","province":"Tỉnh Tuyên Quang","lat":1,"lng":1,"count":1},{"code":"B.TQU10493","name":"Trạm đổi pin B.TQU10493","type":"swap","address":"Thôn 19, xã Vị Xuyên, tỉnh Tuyên Quang","ward":"Xã Vị Xuyên","district":"","province":"Tỉnh Tuyên Quang","lat":22.643873,"lng":104.979884,"count":1},{"code":"B.TQU10294","name":"Trạm đổi pin B.TQU10294","type":"swap","address":"Tổ Dân Phố Chè Đen 1 Phường An Tường, tỉnh Tuyên Quang","ward":"Phường An Tường","district":"","province":"Tỉnh Tuyên Quang","lat":21.774105,"lng":105.18338,"count":1},{"code":"B.TQU00044","name":"Trạm đổi pin B.TQU00044","type":"swap","address":"Xã Sơn Nam","ward":"Xã Sơn Dương","district":"","province":"Tỉnh Tuyên Quang","lat":21.520733,"lng":105.485558,"count":1},{"code":"B.TQU10849","name":"Trạm đổi pin B.TQU10849","type":"swap","address":"Thôn Gò Danh, xã Nhữ Khê, tỉnh Tuyên Quang","ward":"Xã Nhữ Khê","district":"","province":"Tỉnh Tuyên Quang","lat":21.701338,"lng":105.158818,"count":3},{"code":"B.TQU11012","name":"Trạm đổi pin B.TQU11012","type":"swap","address":"số nhà 244 TDP Tân Phúc , Xã Sơn Dương , Tỉnh Tuyên Quang","ward":"Xã Sơn Dương","district":"","province":"Tỉnh Tuyên Quang","lat":21.698997,"lng":105.373576,"count":3},{"code":"B.TQU10950","name":"Trạm đổi pin B.TQU10950","type":"swap","address":"Thôn Kỳ Lâm,xã Sơn Dương,tỉnh Tuyên Quang","ward":"Xã Sơn Dương","district":"","province":"Tỉnh Tuyên Quang","lat":21.694526,"lng":105.397895,"count":3},{"code":"B.TQU10949","name":"Trạm đổi pin B.TQU10949","type":"swap","address":"Thôn Kỳ Lâm,xã Sơn Dương,tỉnh Tuyên Quang","ward":"Xã Sơn Dương","district":"","province":"Tỉnh Tuyên Quang","lat":21.694858,"lng":105.398368,"count":4},{"code":"B.TQU11026","name":"Trạm đổi pin B.TQU11026","type":"swap","address":"Thôn Tân Tiến, xã Hàm Yên. Tỉnh tuyên Quang","ward":"Xã Hàm Yên","district":"","province":"Tỉnh Tuyên Quang","lat":22.066614,"lng":105.036544,"count":2},{"code":"B.TQU11758","name":"Trạm đổi pin B.TQU11758","type":"swap","address":"xóm 5 ,  Nhữ Khê ,  Tuyên Quang","ward":"Xã Nhữ Khê","district":"","province":"Tỉnh Tuyên Quang","lat":21.696118,"lng":105.19432,"count":3},{"code":"B.TQU11871","name":"Trạm đổi pin B.TQU11871","type":"swap","address":"SN 553 thôn phố Lang Quán,  Yên Sơn,  Tuyên Quang","ward":"Xã Yên Sơn","district":"","province":"Tỉnh Tuyên Quang","lat":21.8607,"lng":105.146239,"count":2},{"code":"B.TQU11877","name":"Trạm đổi pin B.TQU11877","type":"swap","address":"Xóm 3, Thôn Thia Trường,  Bằng Hành,  Tuyên Quang","ward":"Xã Bằng Hành","district":"","province":"Tỉnh Tuyên Quang","lat":22.381883,"lng":104.90358,"count":1},{"code":"B.TQU11892","name":"Trạm đổi pin B.TQU11892","type":"swap","address":"Thôn 4,  Thái Bình,  Tuyên Quang","ward":"Xã Thái Bình","district":"","province":"Tỉnh Tuyên Quang","lat":21.798183,"lng":105.25477,"count":2},{"code":"B.TQU11287","name":"Trạm đổi pin B.TQU11287","type":"swap","address":"SN 60, đường Quang Trung, TDP Văn Sơn","ward":"Xã Đông Thọ","district":"","province":"Tỉnh Tuyên Quang","lat":21.652474,"lng":105.278152,"count":3},{"code":"B.TQU11196","name":"Trạm đổi pin B.TQU11196","type":"swap","address":"(Khu đất đấu giá) Khu Man Cá, Man Cổng, Mạ Man Trong, Thôn Vân Quán, Xã Thanh Oai, TP, Hà Nội","ward":"Xã Hàm Yên","district":"","province":"Tỉnh Tuyên Quang","lat":22.061772,"lng":105.032868,"count":3},{"code":"B.TQU11025","name":"Trạm đổi pin B.TQU11025","type":"swap","address":"thôn Tân Bắc xã Hàm yên tỉnh tuyên Quang","ward":"Xã Hàm Yên","district":"","province":"Tỉnh Tuyên Quang","lat":22.06348,"lng":105.03424,"count":3},{"code":"B.TQU11052","name":"Trạm đổi pin B.TQU11052","type":"swap","address":"Tổ 11, phường An Tường, tỉnh Tuyên Quang","ward":"Phường An Tường","district":"","province":"Tỉnh Tuyên Quang","lat":21.789857,"lng":105.195343,"count":1},{"code":"B.TQU11688","name":"Trạm đổi pin B.TQU11688","type":"swap","address":"TDP Yên Lộc, An Tường,Tuyên Quang","ward":"Phường An Tường","district":"","province":"Tỉnh Tuyên Quang","lat":21.768598,"lng":105.182489,"count":3},{"code":"B.TQU11795","name":"Trạm đổi pin B.TQU11795","type":"swap","address":"Tổ dân phố 7, phường Minh Xuân, tỉnh Tuyên Quang","ward":"Phường Minh Xuân","district":"","province":"Tỉnh Tuyên Quang","lat":21.820437,"lng":105.213488,"count":3},{"code":"B.TQU10869","name":"Trạm đổi pin B.TQU10869","type":"swap","address":"Thôn Ghềnh Gà, xã Yên Sơn, tỉnh Tuyên Quang","ward":"Xã Yên Sơn","district":"","province":"Tỉnh Tuyên Quang","lat":21.853099,"lng":105.184985,"count":3},{"code":"B.TQU10775","name":"Trạm đổi pin B.TQU10775","type":"swap","address":"Xã Thượng Ấm, tỉnh Tuyên Quang","ward":"Xã Sơn Dương","district":"","province":"Tỉnh Tuyên Quang","lat":21.712575,"lng":105.353866,"count":2},{"code":"B.TQU11853","name":"Trạm đổi pin B.TQU11853","type":"swap","address":"Km40, Xã Hàm Yên, tỉnh Tuyên Quang","ward":"Xã Hàm Yên","district":"","province":"Tỉnh Tuyên Quang","lat":22.050141,"lng":105.03327,"count":2},{"code":"B.TQU11285","name":"Trạm đổi pin B.TQU11285","type":"swap","address":"Thôn Thịnh Hòa","ward":"Xã Bình Ca","district":"","province":"Tỉnh Tuyên Quang","lat":21.704113,"lng":105.267159,"count":2},{"code":"B.TQU11651","name":"Trạm đổi pin B.TQU11651","type":"swap","address":"Thôn 3, xã Nà Hang, tỉnh Tuyên Quang","ward":"Xã Nà Hang","district":"","province":"Tỉnh Tuyên Quang","lat":22.445668,"lng":105.416672,"count":2},{"code":"B.TQU11652","name":"Trạm đổi pin B.TQU11652","type":"swap","address":"Sn 205 đường Tân Trào, tổ dân phố Tân Quang 13, phường Minh Xuân, tỉnh Tuyên Quang","ward":"Phường Minh Xuân","district":"","province":"Tỉnh Tuyên Quang","lat":21.819605,"lng":105.214016,"count":2},{"code":"B.TQU11368","name":"Trạm đổi pin B.TQU11368","type":"swap","address":"Ngam La,Yên Minh, Tuyên Quang","ward":"Phường Hà Giang 1","district":"","province":"Tỉnh Tuyên Quang","lat":23.065623,"lng":105.17929,"count":1}];
+
+/* ============ 2. STATE ============ */
+let stations = DEFAULT_STATIONS.map(s => ({...s}));
+let userPos = null;
+let activeFilter = 'all';
+let searchTerm = '';
+let currentTab = 'map';
+let map, clusterGroup;
+const markerByCode = {};
+
+/* ============ 3. HELPERS ============ */
+function stripDiacritics(str){
+  return (str||'').toString().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/đ/g,'d').replace(/Đ/g,'D').toLowerCase();
+}
+function haversine(lat1, lon1, lat2, lon2){
+  const R = 6371;
+  const dLat = (lat2-lat1)*Math.PI/180;
+  const dLon = (lon2-lon1)*Math.PI/180;
+  const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+function formatDistance(km){
+  if (km == null) return '';
+  if (km < 1) return Math.round(km*1000) + ' m';
+  return km.toFixed(1) + ' km';
+}
+function gmapsUrl(lat, lng){
+  return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+}
+function showToast(msg, duration=2200){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.style.opacity = '1';
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(()=>{ t.style.opacity='0'; }, duration);
+}
+function typeMeta(type){
+  return type === 'swap'
+    ? { label: 'Trạm đổi pin', emoji: '🔋', color: '#d86602', bg:'bg-amber-50', text:'text-amber-700', ring:'ring-amber-200' }
+    : { label: 'Trạm sạc', emoji: '⚡', color: '#20573c', bg:'bg-moss-50', text:'text-moss-700', ring:'ring-moss-200' };
+}
+
+/* ============ 4. MAP INIT ============ */
+function initMap(){
+  map = L.map('map', { zoomControl:false, attributionControl:true }).setView([21.8236, 105.2152], 11);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  }).addTo(map);
+  L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+  clusterGroup = L.markerClusterGroup({
+    maxClusterRadius: 50,
+    iconCreateFunction: function(cluster){
+      const count = cluster.getChildCount();
+      const size = count < 10 ? 34 : count < 30 ? 40 : 48;
+      return L.divIcon({
+        html: `<div class="cluster-pill" style="background:#20573c;">${count}</div>`,
+        className: 'marker-cluster-custom',
+        iconSize: [size, size]
+      });
+    }
+  });
+  map.addLayer(clusterGroup);
+  document.getElementById('mapLoading').remove();
+}
+
+function makeIcon(type){
+  const meta = typeMeta(type);
+  return L.divIcon({
+    html: `<div class="station-marker" style="width:30px;height:30px;background:${meta.color};">${meta.emoji}</div>`,
+    className: '',
+    iconSize: [30,30],
+    iconAnchor: [15,15],
+    popupAnchor: [0,-14]
+  });
+}
+
+function popupHtml(s){
+  const meta = typeMeta(s.type);
+  return `
+    <div class="p-3.5">
+      <div class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full mb-1.5" style="background:${s.type==='swap'?'#fff3e0':'#e9f4ee'};color:${meta.color}">
+        ${meta.emoji} ${meta.label}
+      </div>
+      <div class="text-xs text-gray-400 font-medium">${s.code}</div>
+      <div class="font-bold text-[14px] leading-snug text-ink mt-0.5">${s.name || '(Chưa có tên)'}</div>
+      <div class="text-[12.5px] text-gray-500 mt-1 leading-snug">${s.address || ''}</div>
+      <a href="${gmapsUrl(s.lat,s.lng)}" target="_blank" rel="noopener"
+        class="mt-3 flex items-center justify-center gap-1.5 w-full text-white text-[13px] font-semibold py-2 rounded-lg"
+        style="background:${meta.color}">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 11 22 2 13 21 11 13 3 11"/></svg>
+        Chỉ đường Google Maps
+      </a>
+    </div>`;
+}
+
+function rebuildMarkers(){
+  clusterGroup.clearLayers();
+  for (const key in markerByCode) delete markerByCode[key];
+  const filtered = getFilteredStations();
+  filtered.forEach(s => {
+    if (typeof s.lat !== 'number' || typeof s.lng !== 'number') return;
+    const marker = L.marker([s.lat, s.lng], { icon: makeIcon(s.type) });
+    marker.bindPopup(popupHtml(s));
+    marker.stationCode = s.code;
+    markerByCode[s.code] = marker;
+    clusterGroup.addLayer(marker);
+  });
+}
+
+function focusStation(code){
+  const s = stations.find(x => x.code === code);
+  if (!s) return;
+  currentTab = 'map';
+  applyTabUI();
+  map.setView([s.lat, s.lng], 16, { animate: true });
+  setTimeout(() => {
+    const m = markerByCode[code];
+    if (m) m.openPopup();
+  }, 300);
+}
+
+/* ============ 5. FILTER / SEARCH ============ */
+function getFilteredStations(){
+  let list = stations.filter(s => typeof s.lat === 'number' && typeof s.lng === 'number');
+  if (activeFilter !== 'all') list = list.filter(s => s.type === activeFilter);
+  if (searchTerm){
+    const q = stripDiacritics(searchTerm);
+    list = list.filter(s => stripDiacritics(s.code).includes(q) || stripDiacritics(s.name).includes(q) || stripDiacritics(s.address).includes(q));
+  }
+  if (userPos){
+    list = list.map(s => ({...s, _dist: haversine(userPos.lat, userPos.lng, s.lat, s.lng)}));
+    list.sort((a,b) => a._dist - b._dist);
+  } else {
+    list = list.map(s => ({...s, _dist: null}));
+  }
+  return list;
+}
+
+/* ============ 6. LIST RENDER ============ */
+function renderList(){
+  const container = document.getElementById('listContainer');
+  const empty = document.getElementById('listEmpty');
+  const list = getFilteredStations();
+
+  if (list.length === 0){
+    container.innerHTML = '';
+    empty.classList.remove('hidden');
+    empty.classList.add('flex');
+    return;
+  }
+  empty.classList.add('hidden');
+  empty.classList.remove('flex');
+
+  container.innerHTML = list.map(s => {
+    const meta = typeMeta(s.type);
+    return `
+    <div class="fade-in bg-white rounded-2xl p-3.5 shadow-sm ring-1 ${meta.ring} flex flex-col gap-2" data-code="${s.code}">
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full ${meta.bg} ${meta.text}">${meta.emoji} ${meta.label}</span>
+            ${s._dist != null ? `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">📍 ${formatDistance(s._dist)}</span>` : ''}
+          </div>
+          <div class="text-[11px] text-gray-400 font-medium mt-1">${s.code}</div>
+          <div class="font-bold text-[14.5px] text-ink leading-snug mt-0.5">${s.name || '(Chưa có tên)'}</div>
+          <div class="text-[12.5px] text-gray-500 leading-snug mt-0.5">${s.address || ''}</div>
+        </div>
+      </div>
+      <div class="flex gap-2 mt-0.5">
+        <button class="btn-press view-on-map-btn flex-1 text-[12.5px] font-semibold py-2 rounded-lg bg-moss-50 text-moss-800 flex items-center justify-center gap-1" data-code="${s.code}">
+          🗺️ Xem trên bản đồ
+        </button>
+        <a href="${gmapsUrl(s.lat,s.lng)}" target="_blank" rel="noopener" class="btn-press flex-1 text-[12.5px] font-semibold py-2 rounded-lg text-white text-center flex items-center justify-center gap-1" style="background:${meta.color}">
+          🧭 Chỉ đường
+        </a>
+      </div>
+    </div>`;
+  }).join('');
+
+  container.querySelectorAll('.view-on-map-btn').forEach(btn => {
+    btn.addEventListener('click', () => focusStation(btn.dataset.code));
+  });
+}
+
+/* ============ 7. UI: TABS / CHIPS / SEARCH ============ */
+function applyTabUI(){
+  document.querySelectorAll('[data-tab]').forEach(btn => {
+    const active = btn.dataset.tab === currentTab;
+    btn.classList.toggle('active', active);
+    btn.classList.toggle('text-moss-800', active);
+    btn.classList.toggle('text-gray-400', !active);
+  });
+  document.getElementById('view-map').classList.toggle('hidden', currentTab !== 'map');
+  document.getElementById('view-list').classList.toggle('hidden', currentTab !== 'list');
+  if (currentTab === 'map') setTimeout(() => map.invalidateSize(), 50);
+  if (currentTab === 'list') renderList();
+}
+
+document.querySelectorAll('[data-tab]').forEach(btn => {
+  btn.addEventListener('click', () => { currentTab = btn.dataset.tab; applyTabUI(); });
+});
+
+document.querySelectorAll('.chip-filter').forEach(btn => {
+  btn.addEventListener('click', () => {
+    activeFilter = btn.dataset.filter;
+    document.querySelectorAll('.chip-filter').forEach(b => {
+      const on = b === btn;
+      b.classList.toggle('bg-white', on);
+      b.classList.toggle('text-moss-800', on);
+      b.classList.toggle('bg-moss-700', !on);
+      b.classList.toggle('text-moss-100', !on);
+    });
+    rebuildMarkers();
+    if (currentTab === 'list') renderList();
+    updateSummary();
+  });
+});
+
+const searchInput = document.getElementById('searchInput');
+const clearSearchBtn = document.getElementById('clearSearch');
+searchInput.addEventListener('input', () => {
+  searchTerm = searchInput.value.trim();
+  clearSearchBtn.classList.toggle('hidden', !searchTerm);
+  rebuildMarkers();
+  if (currentTab === 'list') renderList();
+  updateSummary();
+});
+clearSearchBtn.addEventListener('click', () => {
+  searchInput.value = ''; searchTerm = '';
+  clearSearchBtn.classList.add('hidden');
+  rebuildMarkers();
+  if (currentTab === 'list') renderList();
+  updateSummary();
+});
+
+function updateSummary(){
+  const list = getFilteredStations();
+  const charging = stations.filter(s=>s.type==='charging').length;
+  const swap = stations.filter(s=>s.type==='swap').length;
+  document.getElementById('statSummary').textContent =
+    `${list.length}/${stations.length} trạm hiển thị · ⚡ ${charging} trạm sạc · 🔋 ${swap} trạm đổi pin`;
+}
+
+/* ============ 8. GEOLOCATION ============ */
+const locateBtn = document.getElementById('locateBtn');
+locateBtn.addEventListener('click', () => {
+  if (!navigator.geolocation){
+    showToast('Trình duyệt không hỗ trợ định vị GPS');
+    return;
+  }
+  locateBtn.classList.add('locating');
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      userPos = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      locateBtn.classList.remove('locating');
+      showToast('Đã lấy vị trí — danh sách đã sắp xếp theo khoảng cách');
+
+      if (window._userMarker) map.removeLayer(window._userMarker);
+      window._userMarker = L.circleMarker([userPos.lat, userPos.lng], {
+        radius: 8, color:'#fff', weight:3, fillColor:'#2563eb', fillOpacity:1
+      }).addTo(map).bindPopup('Vị trí của bạn');
+      map.setView([userPos.lat, userPos.lng], 13);
+
+      renderList();
+      currentTab = 'list';
+      applyTabUI();
+    },
+    err => {
+      locateBtn.classList.remove('locating');
+      showToast('Không thể lấy vị trí: ' + (err.message || 'đã từ chối quyền truy cập'));
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+});
+
+/* ============ 9. IMPORT EXCEL/CSV (SheetJS) ============ */
+const NAME_MAP = {
+  code: ['ma tram','matram','code','ma_tram','station code','station_code','id'],
+  name: ['ten tram','tentram','name','ten_tram','station name'],
+  address: ['dia chi','diachi','address'],
+  lat: ['lat','latitude','vi do','vido'],
+  lng: ['lng','lon','long','longitude','kinh do','kinhdo'],
+  type: ['loai','type','loai tram']
+};
+function matchColumn(headers, keys){
+  const normHeaders = headers.map(h => stripDiacritics(String(h||'')).replace(/[^a-z0-9]/g,''));
+  for (const key of keys){
+    const normKey = stripDiacritics(key).replace(/[^a-z0-9]/g,'');
+    const idx = normHeaders.findIndex(h => h === normKey || h.includes(normKey));
+    if (idx !== -1) return idx;
+  }
+  return -1;
+}
+
+document.getElementById('fileInput').addEventListener('change', function(e){
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(evt){
+    try {
+      const wb = XLSX.read(evt.target.result, { type: 'binary' });
+      const firstSheet = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, defval: '' });
+      if (rows.length < 2) { showToast('File không có dữ liệu'); return; }
+
+      const headers = rows[0];
+      const idxCode = matchColumn(headers, NAME_MAP.code);
+      const idxName = matchColumn(headers, NAME_MAP.name);
+      const idxAddr = matchColumn(headers, NAME_MAP.address);
+      const idxLat = matchColumn(headers, NAME_MAP.lat);
+      const idxLng = matchColumn(headers, NAME_MAP.lng);
+      const idxType = matchColumn(headers, NAME_MAP.type);
+
+      if (idxLat === -1 || idxLng === -1){
+        showToast('Không tìm thấy cột Lat/Lng trong file');
+        return;
+      }
+
+      const imported = [];
+      for (let i = 1; i < rows.length; i++){
+        const r = rows[i];
+        const lat = parseFloat(r[idxLat]);
+        const lng = parseFloat(r[idxLng]);
+        if (isNaN(lat) || isNaN(lng)) continue;
+        imported.push({
+          code: idxCode !== -1 ? String(r[idxCode]) : `ROW-${i}`,
+          name: idxName !== -1 ? String(r[idxName]) : '',
+          address: idxAddr !== -1 ? String(r[idxAddr]) : '',
+          type: idxType !== -1 && stripDiacritics(String(r[idxType])).includes('doi pin') ? 'swap' : 'charging',
+          lat, lng, count: 1
+        });
+      }
+
+      if (imported.length === 0){
+        showToast('Không đọc được trạm hợp lệ nào từ file');
+        return;
+      }
+
+      stations = imported;
+      userPos = null;
+      searchInput.value = ''; searchTerm = '';
+      activeFilter = 'all';
+      document.querySelectorAll('.chip-filter').forEach(b => {
+        const on = b.dataset.filter === 'all';
+        b.classList.toggle('bg-white', on);
+        b.classList.toggle('text-moss-800', on);
+        b.classList.toggle('bg-moss-700', !on);
+        b.classList.toggle('text-moss-100', !on);
+      });
+
+      rebuildMarkers();
+      renderList();
+      updateSummary();
+      if (stations.length){
+        const bounds = L.latLngBounds(stations.map(s => [s.lat, s.lng]));
+        map.fitBounds(bounds, { padding: [30,30] });
+      }
+      showToast(`Đã tải ${imported.length} trạm từ file`);
+    } catch(err){
+      console.error(err);
+      showToast('Lỗi khi đọc file: định dạng không hợp lệ');
+    }
+  };
+  reader.readAsBinaryString(file);
+  e.target.value = '';
+});
+
+/* ============ 10. INIT ============ */
+initMap();
+rebuildMarkers();
+updateSummary();
+applyTabUI();
+</script>
+</body>
+</html>
